@@ -1,0 +1,4 @@
+# LF in the index and the working tree on every machine, so sync.py copies the same bytes everywhere.
+* text=auto eol=lf
+*.tga binary
+*.ttf binary
