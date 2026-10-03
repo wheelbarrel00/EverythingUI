@@ -23,7 +23,16 @@ MINOR in `EverythingUI.lua` goes up on every change, and the newest copy loaded 
 ```
 luacheck .
 lua5.1 tests/test_load.lua
+lua5.1 tests/test_window.lua
+lua5.1 tests/test_controls.lua
+lua5.1 tests/test_card.lua
+lua5.1 tests/test_color_picker.lua
+lua5.1 tests/test_dialog.lua
+lua5.1 tests/test_menu.lua
+python tests/mutate.py
 ```
+
+`tests/mutate.py` breaks one line of a scratch copy at a time and requires some test to fail for each.
 
 `python tools/make_textures.py` regenerates `Media/Textures/` and needs Pillow.
 

@@ -133,6 +133,7 @@ local function goodOpts(extra)
         id = "EQOT", title = "EQ Objective Tracker", version = "1.28.0",
         accent = { 0.784, 0.216, 0.243 }, L = {}, tooltip = function() end,
         discord = function() end, getLastTab = function() end, setLastTab = function() end,
+        labels = { discord = "Join our Discord!" },
     }
     for k, v in pairs(extra or {}) do
         if v == NIL then o[k] = nil else o[k] = v end
@@ -154,6 +155,12 @@ case("the XML and the files it names", function()
         local chunk, err = loadstring(sources[name], "@" .. name)
         ok(chunk ~= nil, name .. " compiles under Lua 5.1: " .. tostring(err))
     end
+    for i = 2, #scripts do
+        local head = sources[scripts[i]]:match("^(.-\n.-\n.-)\n")
+        ok(head == 'local addonName = ...\nlocal lib = LibStub("EverythingUI-1.0")\n'
+                   .. "if lib.host ~= addonName then return end",
+           scripts[i] .. " opens with the host check, so a losing copy changes nothing")
+    end
     ok(BASE ~= nil, "MINOR is readable from EverythingUI.lua")
 end)
 
@@ -169,7 +176,7 @@ case("a first copy loads", function()
     ok(s.frames == 0, "no frame is built while the files load")
 end)
 
-case("tokens match DESIGN.md section 4", function()
+case("tokens match section 4 of the design spec", function()
     local lib = loadCopy(newSession("enUS", CLIENT), "HostA")
     local t = lib.tokens
     local DESIGN = {
@@ -179,7 +186,7 @@ case("tokens match DESIGN.md section 4", function()
         inputBorder = { 0.165, 0.180, 0.208 }, borderStrong = { 0.227, 0.247, 0.282 },
         track = { 0.180, 0.196, 0.227 }, text = { 0.910, 0.918, 0.929 },
         label = { 0.769, 0.784, 0.808 }, navText = { 0.639, 0.659, 0.690 },
-        muted = { 0.545, 0.565, 0.596 }, hover = { 1, 1, 1 },
+        muted = { 0.545, 0.565, 0.596 }, danger = { 1, 0.314, 0.314 }, hover = { 1, 1, 1 },
     }
     for name, want in pairs(DESIGN) do
         local c = t.colors[name]
@@ -203,7 +210,7 @@ case("tokens match DESIGN.md section 4", function()
         title = { 15, "SemiBold", "text" }, nav = { 13, "Medium", "navText" },
         navActive = { 13, "SemiBold", "text" }, label = { 13, "Regular", "label" },
         value = { 13, "Medium", "text" }, groupLabel = { 12, "SemiBold", "muted" },
-        hint = { 12, "Regular", "muted" },
+        hint = { 12, "Regular", "muted" }, segment = { 12, "SemiBold", "navText" },
     }
     for name, want in pairs(TYPE) do
         local ty = t.typography[name]
@@ -215,9 +222,12 @@ case("tokens match DESIGN.md section 4", function()
         windowWidth = 1100, windowHeight = 720, headerHeight = 48, sidebarWidth = 196,
         footerHeight = 56, previewWidth = 320, navItemHeight = 36, navItemPadding = 12,
         navItemGap = 2, contentTop = 20, contentSides = 24, groupGap = 22, groupLabelGap = 8,
-        rowHeight = 44, dependentRowHeight = 40, rowPadding = 14, dependentIndent = 40,
+        rowHeight = 44, dependentRowHeight = 40, listRowHeight = 28, rowPadding = 14, dependentIndent = 40,
         labelColumn = 150, valueColumn = 44, checkbox = 16, swatchWidth = 34, swatchHeight = 22,
         buttonHeight = 32, segmentHeight = 26, border = 1,
+        fieldHeight = 30, controlGap = 14, checkboxGap = 10, buttonGap = 10, trackHeight = 3,
+        thumbWidth = 8, thumbHeight = 15, chevron = 12, segmentPadding = 14, segmentGap = 2,
+        popupRowHeight = 22, popupMaxRows = 10, menuItemHeight = 24,
     }
     for name, want in pairs(SPACING) do ok(t.spacing[name] == want, "spacing " .. name) end
     for name in pairs(t.spacing) do ok(SPACING[name] ~= nil, "spacing " .. name .. " is in the spec") end
@@ -281,8 +291,14 @@ case("NewContext keeps validated opts", function()
     ok(file == lib.tokens.fonts.Regular and size == 13, "label is 13 Regular")
     ok(not pcall(ctx.Font, ctx, "nope"), "an unknown type style raises")
 
-    local bare = lib:NewContext(goodOpts({ discord = NIL, getLastTab = NIL, setLastTab = NIL }))
+    local bare = lib:NewContext(goodOpts({ discord = NIL, getLastTab = NIL, setLastTab = NIL, labels = NIL }))
     ok(bare.opts.discord == nil and bare.opts.getLastTab == nil, "the optional fields are optional")
+    ok(type(bare.opts.labels) == "table" and next(bare.opts.labels) == nil, "no labels keeps an empty table")
+    local given = { discord = "Join", discordTip = "Tip" }
+    local labelled = lib:NewContext(goodOpts({ labels = given }))
+    ok(labelled.opts.labels ~= given and labelled.opts.labels.discord == "Join"
+       and labelled.opts.labels.discordTip == "Tip", "labels are copied and kept")
+    ok(ctx:Texture("check") == mediaPath("HostA") .. "Textures\\check", "Texture resolves inside the media path")
 end)
 
 case("NewContext rejects bad opts", function()
@@ -306,6 +322,11 @@ case("NewContext rejects bad opts", function()
     rejects(goodOpts({ accentText = "white" }), "opts.accentText must be", "accentText not rgb")
     rejects(goodOpts({ toolTip = function() end }), "unknown opts.toolTip", "a misspelled key")
     rejects(goodOpts({ setLastTab = NIL }), "come as a pair", "getLastTab without setLastTab")
+    rejects(goodOpts({ getWindowScale = function() end }), "come as a pair", "getWindowScale without setWindowScale")
+    rejects(goodOpts({ labels = NIL }), "opts.discord needs opts.labels.discord", "discord with no label")
+    rejects(goodOpts({ labels = { discord = "x", clearr = "y" } }), "unknown opts.labels.clearr", "a misspelled label")
+    rejects(goodOpts({ labels = { discord = 5 } }), "opts.labels.discord must be a string", "a label that is not a string")
+    rejects(goodOpts({ labels = "x" }), "opts.labels must be a table", "labels not a table")
     local err = rejects(nil, "expects an opts table", "no opts at all")
     ok(tostring(err):find("test_load.lua", 1, true) ~= nil, "the error points at the caller: " .. tostring(err))
 end)
