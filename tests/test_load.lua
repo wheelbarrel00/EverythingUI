@@ -193,7 +193,8 @@ case("tokens match section 4 of the design spec", function()
         ok(c and near(c[1], want[1]) and near(c[2], want[2]) and near(c[3], want[3]), "color " .. name)
     end
     for name in pairs(t.colors) do ok(DESIGN[name] ~= nil, "color " .. name .. " is in the spec") end
-    ok(t.alpha.bg == 0.97 and t.alpha.accentSoft == 0.18 and t.alpha.hover == 0.06, "alphas")
+    ok(t.alpha.bg == 0.97 and t.alpha.accentSoft == 0.18 and t.alpha.dangerSoft == 0.12 and t.alpha.hover == 0.06,
+       "alphas")
     ok(t.accentHiMix == 0.35, "accentHi moves 35% toward white")
 
     local ACCENTS = {
@@ -269,6 +270,8 @@ case("NewContext keeps validated opts", function()
     ok(near(r, 0.784) and near(g, 0.216) and near(b, 0.243) and a == 1, "accent, unchanged by the host's table")
     local sr, _, _, sa = ctx:Color("accentSoft")
     ok(near(sr, 0.784) and sa == 0.18, "accentSoft is the accent at 0.18")
+    local dr, dg, db, da = ctx:Color("dangerSoft")
+    ok(near(dr, 1) and near(dg, 0.314) and near(db, 0.314) and da == 0.12, "dangerSoft is danger at 0.12, whatever the accent")
     r, g, b = ctx:Color("accentHi")
     ok(near(r, 0.784 + 0.216 * 0.35) and near(g, 0.216 + 0.784 * 0.35) and near(b, 0.243 + 0.757 * 0.35),
        "accentHi is 35% toward white")

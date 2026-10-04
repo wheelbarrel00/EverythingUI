@@ -203,10 +203,10 @@ end
 
 -- A texture on the HIGHLIGHT layer is shown and hidden by the Button itself, so hover needs
 -- no script. Without one these read as labels rather than as something clickable.
-function kit.Highlight(ctx, frame)
+function kit.Highlight(ctx, frame, color)
     local t = frame:CreateTexture(nil, "HIGHLIGHT")
     t:SetAllPoints()
-    t:SetColorTexture(ctx:Color("hover"))
+    t:SetColorTexture(ctx:Color(color or "hover"))
     return t
 end
 
@@ -238,7 +238,8 @@ end
 -- Widths read off a string while a tab is built have come out short of the text as drawn (the
 -- Tracker tab, 2026-10-02: a button's text and a slider's label ran past their room), and a tab can be
 -- built at login, before its window is scaled or shown. So whatever a frame sizes from a string is
--- sized again here, once the tab is on screen: each card's label column and each fitted button.
+-- sized again here, once the tab is on screen: each card's label column, each fitted button and
+-- each formatted slider readout.
 function kit.Refit(frame)
     for _, card in ipairs(frame._euiCards or {}) do card:Layout() end
     for _, b in ipairs(frame._euiFit or {}) do b:Fit() end

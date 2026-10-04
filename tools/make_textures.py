@@ -91,6 +91,32 @@ def icon_discord(d, _):
     d.polygon([(4 * s, 11 * s), (4 * s, 15 * s), (8 * s, 11 * s)], fill=255)
 
 
+def icon_map(d, _):
+    s = SUPERSAMPLE
+    d.ellipse((3 * s, 1 * s, 13 * s - 1, 11 * s - 1), fill=255)
+    d.polygon([(4 * s, 8 * s), (12 * s, 8 * s), (8 * s, 15 * s)], fill=255)
+    d.ellipse((6 * s, 4 * s, 10 * s - 1, 8 * s - 1), fill=0)
+
+
+def icon_chain(d, _):
+    s = SUPERSAMPLE
+    for x0, y0 in ((1, 2), (6, 7)):
+        d.rounded_rectangle((x0 * s, y0 * s, (x0 + 9) * s - 1, (y0 + 7) * s - 1), radius=3 * s, outline=255, width=2 * s)
+
+
+def icon_globe(d, _):
+    s = SUPERSAMPLE
+    ring(d, 1, 1, 15, 15)
+    d.ellipse((5 * s, 1 * s, 11 * s - 1, 15 * s - 1), outline=255, width=2 * s)
+    box(d, 1, 7, 15, 9)
+
+
+def icon_history(d, _):
+    ring(d, 1, 1, 15, 15)
+    box(d, 7, 4, 9, 9)
+    box(d, 7, 7, 11, 9)
+
+
 TEXTURES = [
     ('check', 32, check),
     ('chevron-down', 32, chevron_down),
@@ -102,6 +128,10 @@ TEXTURES = [
     ('icon-appearance', 16, icon_appearance),
     ('icon-about', 16, icon_about),
     ('icon-discord', 16, icon_discord),
+    ('icon-map', 16, icon_map),
+    ('icon-chain', 16, icon_chain),
+    ('icon-globe', 16, icon_globe),
+    ('icon-history', 16, icon_history),
 ]
 
 

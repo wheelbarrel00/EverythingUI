@@ -18,6 +18,7 @@ read_globals = {
     "GetPhysicalScreenSize",
     "geterrorhandler",
     "GetCursorPosition",
+    "issecretvalue",
     -- Classic's picker is driven by assigning its callbacks and opacity onto the frame itself.
     ColorPickerFrame = {
         other_fields = true,

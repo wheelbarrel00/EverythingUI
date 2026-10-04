@@ -112,6 +112,27 @@ case("a button sized from its text is sized again by Refit", function()
     ok(fixed:GetWidth() == 100 and #parent._euiFit == 1, "a button given a width keeps it and is not listed")
 end)
 
+case("a danger button is outlined and lettered in danger, with a danger tint on hover", function()
+    local env, _, ui = setup()
+    local parent = newContent(env)
+    local b = ui:CreateButton(parent, "Wipe history", nil, nil, nil, "danger")
+    local edges = layer(b, "BORDER")
+    local allDanger = #edges == 4
+    for _, e in ipairs(edges) do allDanger = allDanger and sameColor(e._color, ui:Color("danger")) end
+    ok(allDanger, "a four-sided outline in danger")
+    ok(sameColor(b.text._textColor, ui:Color("danger")), "its text in danger")
+    ok(#layer(b, "BACKGROUND") == 0, "and no fill, so it never reads as the accent's filled button")
+    local hi = layer(b, "HIGHLIGHT")
+    local r, g, bl = ui:Color("danger")
+    ok(#hi == 1 and sameColor(hi[1]._color, r, g, bl) and hi[1]._color[4] == 0.12, "danger at 0.12 on hover")
+    local s = ui:CreateButton(parent, "Reset")
+    local sh = layer(s, "HIGHLIGHT")
+    ok(#sh == 1 and sameColor(sh[1]._color, ui:Color("hover")) and sh[1]._color[4] == 0.06,
+       "a secondary keeps the white hover")
+    ok(sameColor(s.text._textColor, ui:Color("navText")) and sameColor(layer(s, "BORDER")[1]._color, ui:Color("navText")),
+       "and its navText outline and text")
+end)
+
 case("CreateHeading is a group label", function()
     local env, _, ui = setup()
     local fs = ui:CreateHeading(newContent(env), "Profiles")
@@ -702,6 +723,22 @@ case("a text block stacks wrapping lines in the type styles", function()
        "and moves the lines under it")
 end)
 
+case("a text block line Barlow cannot draw takes the client's font, in its style's color", function()
+    local env, _, ui = setup()
+    local block = ui:CreateTextBlock(newContent(env))
+    local cyr = block:AddLine("the Campaign term now reads " .. CYRILLIC, "label")
+    ok(cyr._fontObject == env.GameFontHighlight and cyr._font[1] == "OBJECT" and cyr:GetText():find(CYRILLIC, 1, true),
+       "the whole line goes to the client's font object")
+    ok(sameColor(cyr._textColor, ui:Color("label")) and cyr._wrap == true and cyr._parent == block,
+       "in its style's color, wrapping in the block")
+    local hint = block:AddLine(CYRILLIC, "hint")
+    ok(sameColor(hint._textColor, ui:Color("muted")), "a hint keeps its own muted color")
+    local colored = block:AddLine(CYRILLIC, "label", { color = "text" })
+    ok(sameColor(colored._textColor, ui:Color("text")), "and a line given a color keeps it")
+    local latin = block:AddLine("Campaign \226\128\148 an em dash Barlow draws", "label")
+    ok(latin._fontObject == nil and latin._font[1]:find("Barlow", 1, true), "a line Barlow can draw keeps Barlow")
+end)
+
 case("a line the client has not measured still takes its style's height", function()
     local env, _, ui = setup()
     env.stringHeight = 0
@@ -738,6 +775,91 @@ case("a text row puts its text at the label column's edge", function()
     ok(r1._h == 28, "at the list row height")
     ok(point(short.text, "LEFT")[4] == 180 + 14 and point(long.text, "LEFT")[4] == 180 + 14,
        "a card lines its rows' text up past the widest label")
+end)
+
+case("CreateSlider's format writes the readout, and only the readout", function()
+    local env, _, ui = setup()
+    local content = newContent(env)
+    local state, sets, asked = { v = 50 }, {}, {}
+    local h, s = ui:CreateSlider(content, "Objective pins per quest", 25, 250, 25,
+        function() return state.v end, function(v) sets[#sets + 1] = v end, nil,
+        function(v) asked[#asked + 1] = v return v >= 250 and "No limit" or ("%d"):format(v) end)
+    ok(h.value:GetText() == "50" and asked[1] == 50, "the readout comes from the format at build: " .. tostring(h.value:GetText()))
+    ok(asked[2] == 25 and asked[3] == 250 and #asked == 3, "and the format is asked for both ends, to size the readout")
+    s:SetValue(262)
+    ok(h.value:GetText() == "No limit" and sets[1] == 250, "a drag formats the stepped value, and the setter gets the number")
+    state.v = 100
+    h:Refresh()
+    ok(h.value:GetText() == "100" and #sets == 1, "Refresh formats too, and still writes nothing back")
+    local h2 = ui:CreateSlider(content, "Y offset", -50, 50, 1, function() return 7 end, function() end, nil,
+        function(v) return ("%d"):format(v) end)
+    ok(h2.value:GetText() == "7", "a format of its own adds no sign: " .. tostring(h2.value:GetText()))
+    local good, err = pcall(function()
+        local made = ui:CreateSlider(content, "Size", 0, 10, 1, function() return 1 end, function() end, nil, "%d")
+        return made
+    end)
+    ok(not good and tostring(err):find("test_controls.lua", 1, true) ~= nil,
+       "a format that is not a function raises at the caller: " .. tostring(err))
+    local h3 = ui:CreateSlider(content, "Size", 0, 1, 0.05, function() return 0.5 end, function() end)
+    ok(h3.value:GetText() == "0.50", "no format keeps the step's own decimals")
+end)
+
+-- The model draws 6 px a character, so "Keine Begrenzung" is 96 px against the 44 px column.
+case("a formatted readout is as wide as its wider end, and Refit sizes it again", function()
+    local env, lib, ui = setup()
+    local content = newContent(env)
+    local sp = lib.tokens.spacing
+    local h, s = ui:CreateSlider(content, "Objective pins per quest", 25, 250, 25, function() return 50 end,
+        function() end, nil, function(v) return v >= 250 and "Keine Begrenzung" or ("%d"):format(v) end)
+    ok(h.value._w == 96, "the readout widens to the wider end: " .. tostring(h.value._w))
+    local p = point(s, "RIGHT")
+    ok(p[2] == h and p[3] == "RIGHT" and p[4] == -(96 + sp.controlGap), "the track stops short of it: " .. tostring(p[4]))
+    ok(h.value:GetText() == "50", "and the readout still shows the value: " .. tostring(h.value:GetText()))
+    local low = ui:CreateSlider(content, "Delay", 0, 10, 1, function() return 5 end, function() end, nil,
+        function(v) return v == 0 and "Switched off" or ("%d"):format(v) end)
+    ok(low.value._w == 72, "a word at the low end counts as well: " .. tostring(low.value._w))
+    local short = ui:CreateSlider(content, "Count", 1, 9, 1, function() return 5 end, function() end, nil,
+        function(v) return ("%d"):format(v) end)
+    ok(short.value._w == sp.valueColumn and point(short.slider, "RIGHT")[4] == -(sp.valueColumn + sp.controlGap),
+       "short ends keep the column: " .. tostring(short.value._w))
+    ok(#content._euiFit == 3, "each formatted slider is listed for Refit")
+    local plain = ui:CreateSlider(content, "Size", 0, 1, 0.05, function() return 0.5 end, function() end)
+    ok(#content._euiFit == 3 and plain.value._w == sp.valueColumn, "a slider with no format keeps the column and is not listed")
+    h.value._measure = 120.4
+    lib.kit.Refit(content)
+    ok(h.value._w == 121 and point(s, "RIGHT")[4] == -(121 + sp.controlGap) and h.value:GetText() == "50",
+       "Refit measures it again once the tab is on screen, rounded up to a whole pixel: " .. tostring(h.value._w))
+    h.value._measure = 60
+    lib.kit.Refit(content)
+    ok(h.value._w == 60 and point(s, "RIGHT")[4] == -(60 + sp.controlGap),
+       "and a narrower measure shrinks it again: " .. tostring(h.value._w))
+end)
+
+case("CreateCheckbox with an icon puts it between the box and the label", function()
+    local env, _, ui = setup()
+    local content = newContent(env)
+    local path = "Interface\\Icons\\INV_Helmet_06"
+    local cb = ui:CreateCheckbox(content, "Gear", function() return true end, function() end, "Rewards that are gear.", path)
+    local ic = cb.icon
+    ok(ic and ic._file == path and ic._w == 16 and ic._h == 16, "a 16 px icon from the path given")
+    local ip = point(ic, "LEFT")
+    ok(ip and ip[2] == cb and ip[3] == "RIGHT" and ip[4] == 10, "10 px right of the box")
+    local lp = point(cb.label, "LEFT")
+    ok(lp and lp[2] == ic and lp[3] == "RIGHT" and lp[4] == 10 and #cb.label._points == 1,
+       "the label moves 10 px past the icon")
+    ok(cb._hitRect and cb._hitRect[2] == -(4 * 6 + 16 + 20), "the click area covers icon and label, tooltip or not: "
+       .. tostring(cb._hitRect and cb._hitRect[2]))
+    local quiet = ui:CreateCheckbox(content, "Gold", function() return true end, function() end, nil, path)
+    ok(quiet._hitRect and quiet._hitRect[2] == -(4 * 6 + 16 + 20), "the same without a tooltip")
+    local plain = ui:CreateCheckbox(content, "Gold", function() return true end, function() end)
+    ok(plain.icon == nil and point(plain.label, "LEFT")[2] == plain and plain._hitRect[2] == -(4 * 6 + 10),
+       "no icon, nothing moves")
+    local good, err = pcall(function()
+        local made = ui:CreateCheckbox(content, "Gold", function() return true end, function() end, nil, 12)
+        return made
+    end)
+    ok(not good and tostring(err):find("test_controls.lua", 1, true) ~= nil,
+       "an icon that is not a path raises at the caller: " .. tostring(err))
 end)
 
 print(("test_controls: %d passed, %d failed"):format(pass, fail))
