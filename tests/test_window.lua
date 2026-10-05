@@ -138,6 +138,7 @@ case("the window is built on demand, not when the files load", function()
     ok(not f:IsShown(), "built hidden")
     ok(ui:BuildSettings() == f, "a second build returns the same window")
     ok(tab(ui, "general")._content._w == 1100 - 196 - 48, "the content column is the window less the sidebar and padding")
+    ok(tab(ui, "general")._content._euiColumn == true, "marked as a column, so a tooltip centers over it")
 end)
 
 case("the sidebar carries one nav item per tab, in order", function()
@@ -464,6 +465,7 @@ case("a tooltip opens in one place, centered over the column just above its cont
     window._scale = 0.8
     local column = env.CreateFrame("Frame", nil, window)
     column._controls = {}
+    column._euiColumn = true
     column._center = { 400, 300 }
     local tip = env.tooltip
     local function only(owner, dx, label)

@@ -117,6 +117,44 @@ def icon_history(d, _):
     box(d, 7, 7, 11, 9)
 
 
+def chevron_left(d, n):
+    stroke(d, n, [(0.60, 0.28), (0.38, 0.50), (0.60, 0.72)], STROKE_32)
+
+
+def maximize(d, n):
+    stroke(d, n, [(0.25, 0.25), (0.75, 0.25), (0.75, 0.75), (0.25, 0.75), (0.25, 0.25)], STROKE_32)
+
+
+def restore(d, n):
+    stroke(d, n, [(0.22, 0.38), (0.62, 0.38), (0.62, 0.78), (0.22, 0.78), (0.22, 0.38)], STROKE_32)
+    stroke(d, n, [(0.38, 0.38), (0.38, 0.22), (0.78, 0.22), (0.78, 0.62), (0.62, 0.62)], STROKE_32)
+
+
+def search(d, n):
+    w = round(STROKE_32 * n)
+    d.ellipse((0.22 * n, 0.22 * n, 0.64 * n, 0.64 * n), outline=255, width=w)
+    stroke(d, n, [(0.59, 0.59), (0.78, 0.78)], STROKE_32)
+
+
+def grip(d, _):
+    for x, y in ((12, 12), (8, 12), (12, 8), (4, 12), (8, 8), (12, 4)):
+        box(d, x, y, x + 2, y + 2)
+
+
+def icon_settings(d, _):
+    s = SUPERSAMPLE
+    disc(d, 8, 8, 5)
+    for x0, y0, x1, y1 in ((7, 1, 9, 4), (7, 12, 9, 15), (1, 7, 4, 9), (12, 7, 15, 9),
+                           (3, 3, 5, 5), (11, 3, 13, 5), (3, 11, 5, 13), (11, 11, 13, 13)):
+        box(d, x0, y0, x1, y1)
+    d.ellipse((6 * s, 6 * s, 10 * s - 1, 10 * s - 1), fill=0)
+
+
+def icon_sidebar(d, _):
+    for x0, y0, x1, y1 in ((1, 2, 15, 4), (1, 12, 15, 14), (1, 2, 3, 14), (13, 2, 15, 14), (5, 2, 7, 14)):
+        box(d, x0, y0, x1, y1)
+
+
 TEXTURES = [
     ('check', 32, check),
     ('chevron-down', 32, chevron_down),
@@ -132,6 +170,13 @@ TEXTURES = [
     ('icon-chain', 16, icon_chain),
     ('icon-globe', 16, icon_globe),
     ('icon-history', 16, icon_history),
+    ('chevron-left', 32, chevron_left),
+    ('maximize', 32, maximize),
+    ('restore', 32, restore),
+    ('search', 32, search),
+    ('grip', 16, grip),
+    ('icon-settings', 16, icon_settings),
+    ('icon-sidebar', 16, icon_sidebar),
 ]
 
 

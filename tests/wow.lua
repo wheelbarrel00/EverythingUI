@@ -199,7 +199,11 @@ function M.newEnv(opts)
     function Frame:SetClampedToScreen(v) self._clamped = v end
     function Frame:SetHitRectInsets(l, r, t, b) self._hitRect = { l, r, t, b } end
     function Frame:StartMoving() self._moving = true end
-    function Frame:StopMovingOrSizing() self._moving = false end
+    function Frame:StopMovingOrSizing() self._moving = false self._sizing = nil end
+    function Frame:SetResizable(v) self._resizable = v end
+    function Frame:IsResizable() return self._resizable end
+    function Frame:SetResizeBounds(...) self._bounds = { ... } end
+    function Frame:StartSizing(point) self._sizing = point end
     -- A client raises on an event it does not have, so a test can take one away.
     function Frame:RegisterEvent(e)
         if env.unknownEvents[e] then error("Attempt to register unknown event \"" .. e .. "\"") end
@@ -270,6 +274,9 @@ function M.newEnv(opts)
     function ScrollFrame:SetVerticalScroll(v) self._vscroll = v end
     function ScrollFrame:GetVerticalScroll() return self._vscroll or 0 end
     function ScrollFrame:GetVerticalScrollRange() return self._vrange or 0 end
+    function ScrollFrame:SetHorizontalScroll(v) self._hscroll = v end
+    function ScrollFrame:GetHorizontalScroll() return self._hscroll or 0 end
+    function ScrollFrame:GetHorizontalScrollRange() return self._hrange or 0 end
     function ScrollFrame:UpdateScrollChildRect() end
 
     -- Focus is one at a time across the client, kept on env. SetFocus drops any selection, as the
@@ -327,6 +334,11 @@ function M.newEnv(opts)
     end
 
     function env.InCombatLockdown() return env.combat end
+    env.cursorX, env.cursorY = 0, 0
+    function env.GetCursorPosition() return env.cursorX, env.cursorY end
+    function env.IsShiftKeyDown() return env.shift == true end
+    function env.IsMouseButtonDown(button) return env.mouseDown == button end
+    function env.SetCursor(c) env.cursor = c end
     function env.geterrorhandler()
         return function(err) env.errors[#env.errors + 1] = err end
     end

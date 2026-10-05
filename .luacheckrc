@@ -19,6 +19,9 @@ read_globals = {
     "geterrorhandler",
     "GetCursorPosition",
     "issecretvalue",
+    "IsShiftKeyDown",
+    "IsMouseButtonDown",
+    "SetCursor",
     -- Classic's picker is driven by assigning its callbacks and opacity onto the frame itself.
     ColorPickerFrame = {
         other_fields = true,
