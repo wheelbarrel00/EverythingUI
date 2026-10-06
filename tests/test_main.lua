@@ -352,6 +352,21 @@ case("a scroll area shows a bar only for a direction it can scroll", function()
     ok(a.vbar:GetThumbTexture()._h == 24, "a long range keeps a thumb big enough to grab")
 end)
 
+case("in a resizable window's corner, both bars end short of the grip", function()
+    local _, _, ui = setup()
+    local f = ui:CreateWindow(fullSpec({ w = 900, h = 600 }))
+    local gp = point(f.grip, "BOTTOMRIGHT")
+    local reachX, reachY = f.grip._w - gp[2], f.grip._h + gp[3]
+    local plain = ui:CreateScrollArea(f.body, {})
+    ok(point(plain.vbar, "BOTTOMRIGHT")[3] == 10 and point(plain.hbar, "BOTTOMRIGHT")[2] == -10,
+       "elsewhere the bars meet in a 10 px corner")
+    local a = ui:CreateScrollArea(f.body, { clearGrip = true })
+    local vy, hx = point(a.vbar, "BOTTOMRIGHT")[3], point(a.hbar, "BOTTOMRIGHT")[2]
+    ok(vy == reachY + 2, "the upright bar ends 2 px above the grip: " .. tostring(vy) .. " for a grip reaching " .. reachY)
+    ok(hx == -(reachX + 2), "the sideways bar ends 2 px left of it: " .. tostring(hx))
+    ok(point(a.scroll, "BOTTOMRIGHT")[2] == -10 and point(a.scroll, "BOTTOMRIGHT")[3] == 10, "the view keeps its size")
+end)
+
 case("ScrollTo clamps to the range, and ClampScroll pulls a stale offset back", function()
     local env, _, ui = setup()
     local a = scrolled(ui, env, nil, 600, 400)

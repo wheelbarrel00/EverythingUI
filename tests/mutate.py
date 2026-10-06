@@ -715,6 +715,12 @@ MUTANTS = [
     ('MainWindow.lua', '        if vbar:GetValue() > yrange then vbar:SetValue(yrange) end\n', '', 'shrinking vertical range keeps the position'),
     ('MainWindow.lua', '        if hbar:GetValue() > xrange then hbar:SetValue(xrange) end\n', '', 'shrinking horizontal range keeps the position'),
     ('MainWindow.lua', '    hbar:SetScript("OnValueChanged", function(_, v) sf:SetHorizontalScroll(v) end)', '    hbar:SetScript("OnValueChanged", function() end)', 'horizontal bar never scrolls'),
+    # MINOR 36: an area in a resizable window's corner ends both bars short of the grip.
+    ('MainWindow.lua', '    local corner = opts.clearGrip and', '    local corner = false and', 'clearGrip ignored'),
+    ('MainWindow.lua', 'opts.clearGrip and (GRIP_SIZE + GRIP_INSET + SCROLLBAR_INSET)', 'opts.clearGrip and (GRIP_SIZE + GRIP_INSET)', 'bars end against the grip'),
+    ('MainWindow.lua', ' or (SCROLLBAR_WIDTH + SCROLLBAR_INSET * 2)\n', ' or (GRIP_SIZE + GRIP_INSET + SCROLLBAR_INSET)\n', 'every area clears a grip'),
+    ('MainWindow.lua', '    vbar:SetPoint("BOTTOMRIGHT", -SCROLLBAR_INSET, corner)', '    vbar:SetPoint("BOTTOMRIGHT", -SCROLLBAR_INSET, SCROLLBAR_WIDTH + SCROLLBAR_INSET * 2)', 'upright bar runs under the grip'),
+    ('MainWindow.lua', '    hbar:SetPoint("BOTTOMRIGHT", -corner, SCROLLBAR_INSET)', '    hbar:SetPoint("BOTTOMRIGHT", -(SCROLLBAR_WIDTH + SCROLLBAR_INSET * 2), SCROLLBAR_INSET)', 'sideways bar runs under the grip'),
     ('MainWindow.lua', '        content:SetSize(math.max(1, w or 1), math.max(1, h or 1))', '        content:SetSize(w, h)', 'content sized to nothing'),
     ('MainWindow.lua', '        local x, y = sf:GetHorizontalScroll() or 0, sf:GetVerticalScroll() or 0\n        area:ScrollTo(x, y)\n', '        local x, y = sf:GetHorizontalScroll() or 0, sf:GetVerticalScroll() or 0\n', 'ClampScroll does nothing'),
     ('MainWindow.lua', '        local step = opts.wheelStep or WHEEL_STEP', '        local step = WHEEL_STEP', 'wheel step ignored'),
