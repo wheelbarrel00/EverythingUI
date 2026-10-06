@@ -238,8 +238,8 @@ end
 -- Widths read off a string while a tab is built have come out short of the text as drawn (the
 -- Tracker tab, 2026-10-02: a button's text and a slider's label ran past their room), and a tab can be
 -- built at login, before its window is scaled or shown. So whatever a frame sizes from a string is
--- sized again here, once the tab is on screen: each card's label column, each fitted button and
--- each formatted slider readout.
+-- sized again here, once the tab is on screen: each card's label column, each fitted button, each
+-- formatted slider readout and each color picker's width.
 function kit.Refit(frame)
     for _, card in ipairs(frame._euiCards or {}) do card:Layout() end
     for _, b in ipairs(frame._euiFit or {}) do b:Fit() end

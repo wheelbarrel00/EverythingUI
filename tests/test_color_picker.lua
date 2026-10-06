@@ -776,6 +776,83 @@ case("Clear shows only while there is a color to clear", function()
        "a clearable picker without labels.clear is refused, pointing at the caller: " .. tostring(err))
 end)
 
+local function listed(frame, item)
+    local n = 0
+    for _, f in ipairs(frame._euiFit or {}) do
+        if f == item then n = n + 1 end
+    end
+    return n
+end
+
+case("a picker is sized again by Refit, its Clear button first", function()
+    local s = session()
+    -- Built first, then a fitted button after it, so the picker has to start the content's list.
+    local content = newContent(s.env)
+    local h = picker(s, content, { r = 0.2, g = 0.4, b = 0.6, a = 1 }, { label = "Zone Header Color" })
+    local reset = s.ui:CreateButton(content, "Reset")
+    ok(listed(content, h) == 1 and listed(content, reset) == 1,
+       "a picker built first starts the content's Refit list, and a button after it joins the same list")
+    -- The label as drawn is wider than it measured while the tab was built.
+    h.label._measure = 200
+    guard(s.lib.kit.Refit, content)
+    ok(h:GetWidth() == 200 + 8 + 34, "Refit sizes it from the label as it measures now: " .. h:GetWidth())
+    h.label._measure = 50
+    guard(s.lib.kit.Refit, content)
+    ok(h:GetWidth() == 50 + 8 + 34, "and follows the label down as well as up: " .. h:GetWidth())
+
+    -- Built after a fitted button, so the picker has to join the list already there.
+    local later = newContent(s.env)
+    local first = s.ui:CreateButton(later, "Reset")
+    local c = picker(s, later, nil, { label = "Divider Line Color", onClear = function() end })
+    local clear = c.clear
+    ok(listed(later, first) == 1 and listed(later, c) == 1, "a picker after a button joins that list")
+    ok(clear and listed(c, clear) == 1 and listed(later, clear) == 0,
+       "its Clear is listed on the picker's own holder, which a tab's Refit never walks")
+    c.label._measure = 180
+    clear.text._measure = 60
+    guard(s.lib.kit.Refit, later)
+    ok(clear:GetWidth() == 60 + 28, "Refit reaches Clear through the picker: " .. clear:GetWidth())
+    ok(not clear:IsShown() and c:GetWidth() == 180 + 8 + (60 + 28) + 8 + 34,
+       "and sizes the row with Clear's new width, room kept while it is hidden: " .. c:GetWidth())
+end)
+
+case("a picker hidden while Refit runs is still sized again", function()
+    local s = session()
+    local content = newContent(s.env)
+    local h = picker(s, content, { r = 0.2, g = 0.4, b = 0.6, a = 1 })
+    h:Hide()
+    h.label._measure = 160
+    guard(s.lib.kit.Refit, content)
+    ok(h:GetWidth() == 160 + 8 + 34, "so it is the right width when it is shown: " .. h:GetWidth())
+end)
+
+local function anchorX(frame, name)
+    for _, p in ipairs(frame._points) do
+        if p[1] == name then return p[4] end
+    end
+end
+
+case("pickers lined up by AlignPickerColumn stay lined up after Refit", function()
+    local s = session()
+    local content = newContent(s.env)
+    local h1 = picker(s, content, { r = 1, g = 0, b = 0, a = 1 }, { label = "Bar Color" })
+    local h2 = picker(s, content, { r = 0, g = 1, b = 0, a = 1 }, { label = "Divider Line Color" })
+    guard(s.ui.AlignPickerColumn, s.ui, h1, h2)
+    ok(listed(content, h1) == 1 and listed(content, h2) == 1,
+       "the pickers stay listed for their own Fit after the column is added")
+    local widest = #"Divider Line Color" * 6
+    ok(anchorX(h1.button, "LEFT") == widest + 8 and h1:GetWidth() == widest + 8 + 34,
+       "aligned at build: " .. tostring(anchorX(h1.button, "LEFT")) .. " " .. h1:GetWidth())
+    -- Each picker's own Fit sets its holder back to its own label's width, so the column has to
+    -- be laid out again after it, from the labels as they measure on screen.
+    h2.label._measure = 150
+    guard(s.lib.kit.Refit, content)
+    ok(anchorX(h1.button, "LEFT") == 158 and anchorX(h2.button, "LEFT") == 158,
+       "Refit moves both swatches past the widest label as it measures now: " .. tostring(anchorX(h1.button, "LEFT")))
+    ok(h1:GetWidth() == 158 + 34 and h2:GetWidth() == 158 + 34,
+       "and no holder is left narrower than its swatch's column: " .. h1:GetWidth() .. " " .. h2:GetWidth())
+end)
+
 case("the swatch opens the picker on the stored color and commits what it hands back", function()
     local s = session()
     local content = newContent(s.env)

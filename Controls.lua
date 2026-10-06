@@ -543,21 +543,32 @@ end
 -- swatches but leaves the labels ragged.
 function Context:AlignPickerColumn(...)
     local pickers = { ... }
-    local widest = 0
-    for _, p in ipairs(pickers) do
-        local w = p.label:GetStringWidth() or 0
-        if w > widest then widest = w end
+    local function align()
+        local widest = 0
+        for _, p in ipairs(pickers) do
+            local w = p.label:GetStringWidth() or 0
+            if w > widest then widest = w end
+        end
+        for _, p in ipairs(pickers) do
+            p.label:ClearAllPoints()
+            p.label:SetPoint("LEFT", p, "LEFT", 0, 0)
+            p.button:ClearAllPoints()
+            p.button:SetPoint("TOP",  p, "TOP", 0, -1)
+            p.button:SetPoint("LEFT", p, "LEFT", widest + PICKER_GAP, 0)
+            -- A translated label can outrun the width the holder is built at, which would leave the
+            -- swatch hanging past the holder's right edge.
+            local need = widest + PICKER_GAP + p.button:GetWidth()
+            if need > p:GetWidth() then p:SetWidth(need) end
+        end
     end
-    for _, p in ipairs(pickers) do
-        p.label:ClearAllPoints()
-        p.label:SetPoint("LEFT", p, "LEFT", 0, 0)
-        p.button:ClearAllPoints()
-        p.button:SetPoint("TOP",  p, "TOP", 0, -1)
-        p.button:SetPoint("LEFT", p, "LEFT", widest + PICKER_GAP, 0)
-        -- A translated label can outrun the width the holder is built at, which would leave the
-        -- swatch hanging past the holder's right edge.
-        local need = widest + PICKER_GAP + p.button:GetWidth()
-        if need > p:GetWidth() then p:SetWidth(need) end
+    align()
+    -- Listed after each picker's own Fit, which sets the holder back to its own width, so kit.Refit
+    -- lines the column up again from the labels as they measure on screen.
+    local content = pickers[1] and pickers[1]:GetParent()
+    if content then
+        local fits = content._euiFit or {}
+        content._euiFit = fits
+        fits[#fits + 1] = { Fit = align }
     end
 end
 

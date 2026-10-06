@@ -633,7 +633,7 @@ case("AlignSatelliteColumn puts every satellite past the widest label", function
 end)
 
 case("AlignPickerColumn lines swatches up past the widest label", function()
-    local env, _, ui = setup()
+    local env, lib, ui = setup()
     local content = newContent(env)
     local function picker(label)
         local p = env.CreateFrame("Frame", nil, content)
@@ -652,6 +652,14 @@ case("AlignPickerColumn lines swatches up past the widest label", function()
     ok(point(p1.button, "TOP")[5] == -1 and point(p1.label, "LEFT")[2] == p1, "labels flush left")
     ok(p1._w == 21 * 6 + 8 + 34 and p2._w == 21 * 6 + 8 + 34, "a holder too narrow for its swatch grows")
     ok(#p1.button._points == 2 and #p1.label._points == 1, "with none of the anchors they were built with")
+    ok(content._euiFit and #content._euiFit == 1, "the column is listed on the pickers' content for Refit")
+    -- The shorter label as drawn outruns the longer one's measure at build.
+    p1.label._measure = 200
+    lib.kit.Refit(content)
+    ok(point(p1.button, "LEFT")[4] == 208 and point(p2.button, "LEFT")[4] == 208,
+       "Refit moves the swatch column past the widest label as it measures now: " .. tostring(point(p2.button, "LEFT")[4]))
+    ok(p1._w == 208 + 34 and p2._w == 208 + 34, "and grows each holder to fit it")
+    ok(#p1.button._points == 2, "re-anchored rather than given a second LEFT")
 end)
 
 case("AlignLabelColumn gives a group one column, dependents shortened by their indent", function()
