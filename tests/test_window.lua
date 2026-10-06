@@ -114,6 +114,7 @@ case("the window is built on demand, not when the files load", function()
     ok(f._name == "EQOTOptionsFrame", "the host names the window")
     ok(f._w == 1100 and f._h == 720, "1100 x 720")
     ok(f._strata == "DIALOG" and f._clamped == true and f._movable == true, "DIALOG strata, clamped, movable")
+    ok(f._toplevel ~= true, "a click never brings it over Blizzard's color picker")
     ok(f._drag and f._drag[1] == "LeftButton", "dragged with the left button")
     ok(f:GetScript("OnDragStart") == f.StartMoving and f:GetScript("OnDragStop") == f.StopMovingOrSizing,
        "a drag moves it and letting go stops it")
@@ -388,6 +389,7 @@ case("ToggleSettings opens and closes", function()
     ok(f and f:IsShown(), "the first toggle builds and shows")
     ok(f._scale == 0.8, "at the saved window scale: " .. tostring(f and f._scale))
     ok(log.refresh.general == 2, "and views the current tab again")
+    ok((f._raised or 0) == 1, "in front of a main window that came forward since")
     ui:ToggleSettings()
     ok(not f:IsShown(), "the second hides")
 end)
@@ -629,6 +631,80 @@ case("a tab with a preview gives the panel its right side", function()
     ok(seen.refreshed == 1, "not refreshed while another tab is shown")
     ui:SelectTab("appearance")
     ok(seen.built == 1 and seen.refreshed == 2, "built once, refreshed on every view")
+end)
+
+case("a nav title too long for its item takes a second line", function()
+    local _, _, ui = setup()
+    addTabs(ui)
+    ui:BuildSettings()
+    for _, t in ipairs(ui._tabs) do
+        ok(t._nav.label._wrap == true and t._nav.label._maxLines == 2, t.id .. " wraps, at most twice")
+    end
+end)
+
+case("a Discord label too long for one line wraps and the button grows for it", function()
+    local env, _, ui = setup({ lastTab = "general" })
+    addTabs(ui)
+    local f = ui:BuildSettings()
+    local d = f.discord
+    ok(d.text._wrap == true and d.text._maxLines == 2, "the label wraps, at most twice")
+    ok(d._h == 32, "one line keeps the button's height: " .. tostring(d._h))
+    local listed = 0
+    for _, b in ipairs(f.sidebar._euiFit or {}) do if b == d then listed = listed + 1 end end
+    ok(listed == 1, "listed once on the sidebar for Refit")
+    local bottom = d._points[1]
+    ok(bottom[1] == "BOTTOMLEFT", "anchored at its bottom, so it grows upward")
+    -- Two lines once the window is on screen: the label measures as the client draws it.
+    d.text._measureH = 31
+    env.timers = {}
+    ui:SelectTab("general")
+    env.runTimers()
+    ok(d._h == 44, "the sidebar is sized again on view, and the button takes two lines: " .. tostring(d._h))
+    d.text._measureH = 15
+    ui:SelectTab("tracker")
+    env.runTimers()
+    ok(d._h == 32, "and shrinks back to one line: " .. tostring(d._h))
+    d.text._measureH = 19
+    ui:SelectTab("general")
+    env.runTimers()
+    ok(d._h == 32, "a single line drawn a little tall is still one line: " .. tostring(d._h))
+end)
+
+case("a scale capped while the window is open is read again by the tab on screen", function()
+    local env, _, ui, state = setup({ scale = 0.9, lastTab = "general" })
+    local log = addTabs(ui)
+    local f = ui:BuildSettings()
+    f:Show()
+    env.runTimers()
+    local before = log.controls.general
+    state.scale = 1.4
+    ui:ApplyWindowScale()
+    ok(log.controls.general == before + 1, "the capped value reaches the slider on screen: "
+       .. tostring(before) .. " then " .. tostring(log.controls.general))
+    ok(log.controls.tracker == nil, "a tab not on screen is left alone")
+    state.scale = 0.8
+    ui:ApplyWindowScale()
+    ok(log.controls.general == before + 1, "a scale that fits reads nothing again")
+    f:Hide()
+    state.scale = 1.4
+    ui:ApplyWindowScale()
+    ok(log.controls.general == before + 1, "nor does a cap while the window is hidden")
+end)
+
+case("the settings scroll range is floored to whole units", function()
+    local _, _, ui = setup()
+    addTabs(ui)
+    ui:BuildSettings()
+    local t = tab(ui, "general")
+    local sf = t._scroll
+    local bar
+    for _, c in ipairs({ t._holder:GetChildren() }) do if c._type == "Slider" then bar = c end end
+    sf._h, bar._h = 400, 392
+    sf:_fire("OnScrollRangeChanged", 0, 120.7)
+    local _, max = bar:GetMinMaxValues()
+    ok(max == 120 and bar:IsShown(), "a fractional range drops its fraction: " .. tostring(max))
+    sf:_fire("OnScrollRangeChanged", 0, 0.6)
+    ok(not bar:IsShown(), "and less than a unit is no range at all")
 end)
 
 print(("test_window: %d passed, %d failed"):format(pass, fail))

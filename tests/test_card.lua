@@ -202,6 +202,22 @@ case("Refit aligns a card's label column again with the widths its text measures
     ok(#content._euiCards == 2 and content._euiCards[2] == other, "every card on the content is listed")
 end)
 
+case("Refit sizes a hidden card and a hidden button again too", function()
+    local _, lib, ui, content = setup()
+    local card = ui:CreateGroup(content, "Filters")
+    local long = slider(ui, content, "Maximum Height (percent of tracker)")
+    card:Add(long)
+    local reset = ui:CreateButton(content, "Reset")
+    card:Hide()
+    reset:Hide()
+    long.label._measure = 260
+    reset.text._measure = 120
+    lib.kit.Refit(content)
+    ok(point(long.slider, "LEFT")[4] == 260 + 14, "a hidden card's label column fits its label as it measures now, so it is right when shown: "
+       .. tostring(point(long.slider, "LEFT")[4]))
+    ok(reset:GetWidth() == 120 + 28, "and a hidden fitted button takes its text's width: " .. reset:GetWidth())
+end)
+
 case("a fitHeight row is sized to its text block, again on every Layout", function()
     local env, lib, ui, content = setup()
     local card = ui:CreateGroup(content, "Changelog")

@@ -212,11 +212,13 @@ case("tokens match section 4 of the design spec", function()
         navActive = { 13, "SemiBold", "text" }, label = { 13, "Regular", "label" },
         value = { 13, "Medium", "text" }, groupLabel = { 12, "SemiBold", "muted" },
         hint = { 12, "Regular", "muted" }, segment = { 12, "SemiBold", "navText" },
+        figure = { 22, "SemiBold", "text" },
     }
     for name, want in pairs(TYPE) do
         local ty = t.typography[name]
         ok(ty and ty.size == want[1] and ty.weight == want[2] and ty.color == want[3], "type " .. name)
     end
+    for name in pairs(t.typography) do ok(TYPE[name] ~= nil, "type " .. name .. " is in the spec") end
     ok(t.fontFlags == "" and t.shadowOffset == 0, "no outline and no shadow offset")
 
     local SPACING = {

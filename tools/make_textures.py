@@ -150,6 +150,11 @@ def icon_settings(d, _):
     d.ellipse((6 * s, 6 * s, 10 * s - 1, 10 * s - 1), fill=0)
 
 
+def icon_stats(d, _):
+    for x0, y0, x1, y1 in ((2, 9, 5, 15), (7, 3, 10, 15), (12, 6, 15, 15)):
+        box(d, x0, y0, x1, y1)
+
+
 def icon_sidebar(d, _):
     for x0, y0, x1, y1 in ((1, 2, 15, 4), (1, 12, 15, 14), (1, 2, 3, 14), (13, 2, 15, 14), (5, 2, 7, 14)):
         box(d, x0, y0, x1, y1)
@@ -177,6 +182,7 @@ TEXTURES = [
     ('grip', 16, grip),
     ('icon-settings', 16, icon_settings),
     ('icon-sidebar', 16, icon_sidebar),
+    ('icon-stats', 16, icon_stats),
 ]
 
 

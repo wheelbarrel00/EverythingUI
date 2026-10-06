@@ -145,6 +145,7 @@ function M.newEnv(opts)
     function FontString:SetJustifyH(j) self._justifyH = j end
     function FontString:SetJustifyV(j) self._justifyV = j end
     function FontString:SetWordWrap(w) self._wrap = w end
+    function FontString:SetMaxLines(n) self._maxLines = n end
     function FontString:SetShadowOffset(x, y) self._shadow = { x, y } end
     function FontString:GetShadowOffset()
         if self._shadow then return self._shadow[1], self._shadow[2] end
@@ -211,6 +212,7 @@ function M.newEnv(opts)
     end
     function Frame:UnregisterEvent(e) self._events[e] = nil end
     function Frame:Raise() self._raised = (self._raised or 0) + 1 end
+    function Frame:SetToplevel(v) self._toplevel = v end
 
     local Button = copyInto({}, Frame)
     function Button:Click(button) self:_fire("OnClick", button or "LeftButton", false) end
@@ -293,6 +295,8 @@ function M.newEnv(opts)
     function EditBox:HighlightText() self._highlight = true end
     function EditBox:SetFontObject(o) self._fontObject = o end
     function EditBox:SetTextInsets(...) self._insets = { ... } end
+    function EditBox:SetMultiLine(v) self._multiLine = v end
+    function EditBox:IsMultiLine() return self._multiLine == true end
 
     local GameTooltip = copyInto({}, Frame)
     function GameTooltip:SetOwner(owner, anchor) self._owner, self._anchor = owner, anchor self._lines = {} end

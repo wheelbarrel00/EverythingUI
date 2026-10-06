@@ -853,6 +853,99 @@ case("pickers lined up by AlignPickerColumn stay lined up after Refit", function
        "and no holder is left narrower than its swatch's column: " .. h1:GetWidth() .. " " .. h2:GetWidth())
 end)
 
+local function columns(frame)
+    local n = 0
+    for _, f in ipairs(frame._euiFit or {}) do
+        if f._euiPickerColumn then n = n + 1 end
+    end
+    return n
+end
+
+case("a column of clearable pickers keeps Clear between the labels and the swatches", function()
+    local s = session()
+    local content = newContent(s.env)
+    local h1 = picker(s, content, { r = 1, g = 0, b = 0, a = 1 }, { label = "Bar Color", onClear = function() end })
+    local h2 = picker(s, content, { r = 0, g = 1, b = 0, a = 1 }, { label = "Divider Line Color" })
+    local h3 = picker(s, content, { r = 0, g = 0, b = 1, a = 1 }, { label = "Glow", onClear = function() end })
+    h1.clear.text._measure = 40
+    h3.clear.text._measure = 20
+    guard(s.lib.kit.Refit, content)
+    guard(s.ui.AlignPickerColumn, s.ui, h1, h2, h3)
+    local widest = #"Divider Line Color" * 6
+    local x = widest + 8 + (40 + 28) + 8
+    ok(anchorX(h1.button, "LEFT") == x and anchorX(h2.button, "LEFT") == x,
+       "the swatches sit past the widest label and the widest Clear: " .. tostring(anchorX(h1.button, "LEFT")))
+    local clearAt = h1.clear._points[#h1.clear._points]
+    ok(clearAt[1] == "RIGHT" and clearAt[2] == h1.button and clearAt[3] == "LEFT" and clearAt[4] == -8,
+       "Clear stays just left of its swatch, so it lands in that room, not over the label")
+    ok(h1:GetWidth() == x + 34 and h2:GetWidth() == x + 34, "every holder takes the column: " .. h1:GetWidth())
+    h1.clear.text._measure = 70
+    guard(s.lib.kit.Refit, content)
+    ok(anchorX(h2.button, "LEFT") == widest + 8 + (70 + 28) + 8, "a Clear that measures wider on screen widens the room")
+end)
+
+case("aligning the same pickers again leaves one column, not two", function()
+    local s = session()
+    local content = newContent(s.env)
+    local h1 = picker(s, content, nil, { label = "Bar Color" })
+    local h2 = picker(s, content, nil, { label = "Divider Line Color" })
+    guard(s.ui.AlignPickerColumn, s.ui, h1, h2)
+    guard(s.ui.AlignPickerColumn, s.ui, h1, h2)
+    ok(columns(content) == 1, "one column listed for Refit: " .. columns(content))
+    h1.label._measure = 150
+    guard(s.lib.kit.Refit, content)
+    guard(s.lib.kit.Refit, content)
+    ok(anchorX(h1.button, "LEFT") == 158 and anchorX(h2.button, "LEFT") == 158 and h2:GetWidth() == 158 + 34,
+       "and two Refits in a row leave it lined up: " .. tostring(anchorX(h1.button, "LEFT")))
+end)
+
+case("a picker moved to another column leaves the first one to the rest", function()
+    local s = session()
+    local content = newContent(s.env)
+    local a = picker(s, content, nil, { label = "Bar Color" })
+    local b = picker(s, content, nil, { label = "Border" })
+    local c = picker(s, content, nil, { label = "Divider Line Color" })
+    local d = picker(s, content, nil, { label = "Glow" })
+    guard(s.ui.AlignPickerColumn, s.ui, a, b, c)
+    guard(s.ui.AlignPickerColumn, s.ui, c, d)
+    ok(columns(content) == 2, "both columns listed: " .. columns(content))
+    guard(s.lib.kit.Refit, content)
+    ok(anchorX(a.button, "LEFT") == #"Bar Color" * 6 + 8 and anchorX(b.button, "LEFT") == #"Bar Color" * 6 + 8,
+       "the first column lines up from its own labels now: " .. tostring(anchorX(a.button, "LEFT")))
+    ok(anchorX(c.button, "LEFT") == #"Divider Line Color" * 6 + 8 and anchorX(d.button, "LEFT") == anchorX(c.button, "LEFT"),
+       "and the moved picker follows the new one")
+    guard(s.ui.AlignPickerColumn, s.ui, a, b)
+    ok(columns(content) == 2, "a column whose every picker moved away is dropped: " .. columns(content))
+end)
+
+case("pickers on two parents are lined up by a Refit of either", function()
+    local s = session()
+    local left, right = newContent(s.env), newContent(s.env)
+    local h1 = picker(s, left, nil, { label = "Bar Color" })
+    local h2 = picker(s, right, nil, { label = "Divider Line Color" })
+    guard(s.ui.AlignPickerColumn, s.ui, h1, h2)
+    ok(columns(left) == 1 and columns(right) == 1, "the column is listed on both parents")
+    h2.label._measure = 150
+    guard(s.lib.kit.Refit, right)
+    ok(anchorX(h1.button, "LEFT") == 158 and anchorX(h2.button, "LEFT") == 158,
+       "the second parent's Refit lines the whole column up: " .. tostring(anchorX(h1.button, "LEFT")))
+end)
+
+case("a column keeps a picker wider than it, and counts a hidden one", function()
+    local s = session()
+    local content = newContent(s.env)
+    local h1 = picker(s, content, nil, { label = "Bar Color" })
+    local h2 = picker(s, content, nil, { label = "Glow" })
+    local hidden = picker(s, content, nil, { label = "Divider Line Color" })
+    hidden:Hide()
+    guard(s.ui.AlignPickerColumn, s.ui, h1, h2, hidden)
+    local x = #"Divider Line Color" * 6 + 8
+    ok(anchorX(h1.button, "LEFT") == x, "a hidden picker's label still sets the column, so it lines up when shown")
+    h2._w = 500
+    guard(s.ui.AlignPickerColumn, s.ui, h1, h2, hidden)
+    ok(h2:GetWidth() == 500, "a holder already wider than the column is not narrowed: " .. h2:GetWidth())
+end)
+
 case("the swatch opens the picker on the stored color and commits what it hands back", function()
     local s = session()
     local content = newContent(s.env)

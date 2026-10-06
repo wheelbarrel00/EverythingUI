@@ -735,6 +735,53 @@ case("a tooltip in a main window opens over its own control, not over the body",
     ok(p and p[2] == side and p[4] == 0, "and in the sidebar too: " .. tostring(p and p[4]))
 end)
 
+case("ShowTooltip draws a host's own tooltip over its owner, and HideTooltip takes it down", function()
+    local env, _, ui = setup()
+    local f = ui:CreateWindow(fullSpec({}))
+    f.body._center = { 830, 400 }
+    local row = env.CreateFrame("Button", nil, f.body)
+    row._center = { 400, 600 }
+    ui:ShowTooltip(row, "|cffffd100Testing the Wells|r", "Completed 3 days ago")
+    local t = env.tooltip
+    ok(t._shown and t._lines[1].text == "Testing the Wells" and t._lines[2].text == "Completed 3 days ago",
+       "the title without its color escape, then the body")
+    ok(t._lines[1].color[4] == 1 and t._lines[1].wrap == true, "the title drawn opaque and wrapped, as every library title")
+    local p = t._points[1]
+    ok(p and p[1] == "BOTTOM" and p[2] == row and p[4] == 0, "over its own row in a main window: " .. tostring(p and p[4]))
+    ui:ShowTooltip(row, "The Deadmines")
+    ok(#t._lines == 1 and t._lines[1].text == "The Deadmines", "the next use replaces the last one's lines")
+    ui:HideTooltip()
+    ok(not t._shown, "HideTooltip hides it")
+    ui:ShowTooltip(row, nil, nil)
+    ui:ShowTooltip(nil, "Nothing to hang it on")
+    ok(not t._shown, "no text, or no owner, shows nothing")
+    ui:ShowTooltip(row, "", "Only a body")
+    ok(t._shown and #t._lines == 1 and t._lines[1].text == "Only a body", "an empty title leaves the body alone")
+end)
+
+case("ShowTooltip on a settings column centers over the column, as AttachTooltip does", function()
+    local env, _, ui = setup()
+    local column = env.CreateFrame("Frame", nil, env.UIParent)
+    column._euiColumn = true
+    column._center = { 700, 400 }
+    local box = env.CreateFrame("Button", nil, column)
+    box._center = { 500, 600 }
+    ui:ShowTooltip(box, "Show quest pins")
+    local p = env.tooltip._points[1]
+    ok(p and p[2] == box and p[4] == 200, "offset to the column's center: " .. tostring(p and p[4]))
+end)
+
+case("the stats icon ships beside the other sidebar icons", function()
+    local fh = io.open(root .. "/Media/Textures/icon-stats.tga", "rb")
+    local bytes = fh and fh:read("*a")
+    if fh then fh:close() end
+    ok(bytes and #bytes >= 18 + 16 * 16 * 4 and bytes:byte(13) == 16 and bytes:byte(15) == 16
+       and bytes:byte(3) == 2 and bytes:byte(17) == 32,
+       "a 16 px uncompressed 32-bit texture")
+    local _, _, ui = setup()
+    ok(ui:Texture("icon-stats") == TEXTURES .. "icon-stats", "and resolves inside the media path")
+end)
+
 case("a window larger than the screen at its scale is cut to fit, and the host keeps its size", function()
     local _, _, ui = setup()
     local state = { w = 1100, h = 720 }
@@ -817,6 +864,10 @@ case("ScrollToRow reads the range again after the rows grew, and waits for a hei
        .. l.bar:GetValue())
     l.scroll._h = 0
     ok(l:ScrollToRow(1) == false and l.bar:GetValue() == 30 * 28 - 280, "a list with no height yet answers false")
+    l.scroll._h = 280
+    l.scroll.UpdateScrollChildRect = function(s) s._vrange = 37.5 end
+    l:ScrollToRow(1)
+    ok(select(2, l.bar:GetMinMaxValues()) == 37, "a fractional range is floored, as the bar's own is")
 end)
 
 case("a list's rows stay clear of the bar as it comes and goes", function()
@@ -914,6 +965,246 @@ case("the grip answers the left button alone, one press at a time", function()
     f._w = 760
     env.fire(f.grip, "OnMouseUp", "LeftButton")
     ok(state.sized == 1 and f._w == 760, "a click's press is not reused either")
+end)
+
+local function pages()
+    return {
+        { id = "quests", title = "Quests", icon = TEXTURES .. "icon-history" },
+        { id = "timeline", title = "Chain Timeline", icon = TEXTURES .. "icon-chain" },
+        { id = "stats", title = "Stats" },
+    }
+end
+
+case("CreateNav checks its pages and points an error at the caller", function()
+    local env, _, ui = setup()
+    local side = env.CreateFrame("Frame", nil, env.UIParent)
+    side._w = 196
+    ok(raises(function() ui:CreateNav(side, {}) end, "needs a list of pages"), "no pages is refused")
+    ok(raises(function() ui:CreateNav(side, { { id = "a" } }) end, "page 1 needs an id and a title"), "a page with no title")
+    ok(raises(function() ui:CreateNav(side, { { id = "a", title = "A", badge = 2 } }) end, "unknown field badge"),
+       "an unknown field")
+    ok(raises(function() ui:CreateNav(side, { { id = "a", title = "A", icon = 3 } }) end, "unknown field icon"),
+       "a field of the wrong type")
+    ok(raises(function() ui:CreateNav(side, pages(), "go") end, "onSelect must be a function"), "a bad onSelect")
+    local good, err = pcall(function() ui:CreateNav(side, {}) end)
+    ok(not good and tostring(err):find("test_main.lua", 1, true), "the error names the caller's line: " .. tostring(err))
+end)
+
+case("CreateNav draws the settings window's nav items and marks a click", function()
+    local env, _, ui = setup()
+    local side = env.CreateFrame("Frame", nil, env.UIParent)
+    side._w = 196
+    local picked = {}
+    local nav = ui:CreateNav(side, pages(), function(id) picked[#picked + 1] = id end)
+    ok(point(nav, "TOPLEFT")[2] == 8 and point(nav, "TOPLEFT")[3] == -12 and point(nav, "TOPRIGHT")[2] == -8
+       and point(nav, "TOPRIGHT")[3] == -12, "inset 8 from the sides and 12 from the top, as the settings sidebar is")
+    ok(nav._h == 3 * 36 + 2 * 2, "as tall as its items and the gaps between them: " .. tostring(nav._h))
+    local q, t, s = nav.items.quests, nav.items.timeline, nav.items.stats
+    ok(q.label:GetText() == "Quests" and t.label:GetText() == "Chain Timeline" and s.label:GetText() == "Stats",
+       "one item per page, titled")
+    ok(q.icon and q.icon:GetTexture() == TEXTURES .. "icon-history" and s.icon == nil, "an icon only where a page has one")
+    ok(q._h == 36 and q._w == 196 - 16, "36 tall, the sidebar less its padding")
+    ok(point(t, "TOPLEFT")[2] == q and point(t, "TOPLEFT")[5] == -2 and point(t, "TOPRIGHT")[2] == q,
+       "items stack with a 2 px gap, each as wide as the nav")
+    ok(t.label._wrap == true and t.label._maxLines == 2, "a long title wraps, at most twice")
+    ok(not q.active:IsShown() and not t.active:IsShown(), "nothing is marked before a page is picked")
+    local nr, ng, nb = ui:Color("navText")
+    ok(sameColor(q.label._textColor, nr, ng, nb) and q.label._font[1]:find("Medium", 1, true)
+       and sameColor(q.icon._vertex, nr, ng, nb), "an unmarked item is navText Medium, its icon navText")
+    t:Click()
+    ok(picked[1] == "timeline" and #picked == 1, "a click calls onSelect with its page")
+    ok(t.active:IsShown() and not q.active:IsShown() and nav:GetSelected() == "timeline", "and marks it alone")
+    local tr, tg, tb = ui:Color("text")
+    local hr, hg, hb = ui:Color("accentHi")
+    ok(sameColor(t.label._textColor, tr, tg, tb) and t.label._font[1]:find("SemiBold", 1, true)
+       and sameColor(t.icon._vertex, hr, hg, hb), "the marked item is text SemiBold with its icon in accentHi")
+    nav:Select("quests")
+    ok(#picked == 1 and q.active:IsShown() and not t.active:IsShown() and nav:GetSelected() == "quests",
+       "Select marks a page without calling onSelect")
+    ok(raises(function() nav:Select("gone") end, "has no page gone"), "Select refuses an unknown page")
+    local quiet = ui:CreateNav(side, pages())
+    local good = pcall(function() quiet.items.stats:Click() end)
+    ok(good and quiet:GetSelected() == "stats", "a nav with no onSelect still marks a click")
+end)
+
+case("CreateMultilineField holds many lines in the client's font", function()
+    local env, _, ui = setup()
+    local parent = env.CreateFrame("Frame", nil, env.UIParent)
+    ok(raises(function() ui:CreateMultilineField(parent, "read") end, "opts must be a table"), "opts must be a table")
+    ok(raises(function() ui:CreateMultilineField(parent, { wrap = true }) end, "unknown field wrap"), "an unknown field")
+    ok(raises(function() ui:CreateMultilineField(parent, { readOnly = 1 }) end, "unknown field readOnly"), "a field of the wrong type")
+    local m = ui:CreateMultilineField(parent)
+    local box = m.box
+    ok(box._type == "EditBox" and box:IsMultiLine() and box._autoFocus == false, "a multi-line box that never grabs the keyboard")
+    ok(box._fontObject == env.GameFontHighlight, "in the client's font object, so any alphabet draws")
+    ok(m.scroll:GetScrollChild() == box and box:GetParent() == m.scroll, "scrolled by its own frame")
+    ok(m._euiFill == true, "fills the width it is given")
+    local fill = layer(m, "BACKGROUND")[1]
+    ok(fill and sameColor(fill._color, ui:Color("input")), "an input fill")
+    local edge = layer(m, "BORDER")
+    ok(#edge == 4 and sameColor(edge[1]._color, ui:Color("inputBorder")), "with an inputBorder edge")
+    m.scroll:_fire("OnSizeChanged", 480, 300)
+    ok(box._w == 480, "the box takes the scroll frame's width, so its lines wrap there")
+    m.scroll:_fire("OnScrollRangeChanged", 0, 200)
+    m.bar:SetValue(120)
+    m:SetText("line one\nline two")
+    ok(m:GetText() == "line one\nline two" and m.bar:GetValue() == 0, "SetText shows the text from the top")
+    box._text = "line one\nline two!"
+    box:_fire("OnTextChanged", true)
+    ok(m:GetText() == "line one\nline two!", "an editable box keeps what is typed")
+    box:SetFocus()
+    box:_fire("OnEditFocusGained")
+    ok(sameColor(edge[1]._color, ui:Color("borderStrong")), "focus brightens the edge")
+    box:_fire("OnEscapePressed")
+    box:_fire("OnEditFocusLost")
+    ok(not box:HasFocus() and sameColor(edge[1]._color, ui:Color("inputBorder")), "Escape lets the keyboard go")
+    m:_fire("OnMouseDown", "LeftButton")
+    ok(box:HasFocus(), "a click anywhere on the box takes the keyboard")
+end)
+
+case("a read-only CreateMultilineField can be selected but not changed", function()
+    local env, _, ui = setup()
+    local parent = env.CreateFrame("Frame", nil, env.UIParent)
+    local m = ui:CreateMultilineField(parent, { readOnly = true })
+    local box = m.box
+    m:SetText("# Quest History - 3 entries")
+    box._text = "# Quest History - 3 entriesx"
+    box:_fire("OnTextChanged", true)
+    ok(m:GetText() == "# Quest History - 3 entries" and box._highlight == true,
+       "a keystroke is undone, and the text left selected for copying")
+    box._highlight = false
+    box._text = "set by code"
+    box:_fire("OnTextChanged", false)
+    ok(m:GetText() == "set by code" and box._highlight == false, "text the code puts in is not undone")
+    m:SetText("new text")
+    ok(m:GetText() == "new text", "SetText still replaces it")
+    m:SelectAll()
+    ok(box:HasFocus() and box._highlight == true, "SelectAll takes the keyboard and then selects, so the selection holds")
+end)
+
+case("CreateMultilineField keeps the cursor in view", function()
+    local env, _, ui = setup()
+    local parent = env.CreateFrame("Frame", nil, env.UIParent)
+    local m = ui:CreateMultilineField(parent)
+    m.scroll._h = 100
+    m.scroll._vrange = 400
+    m.scroll:_fire("OnScrollRangeChanged", 0, 400)
+    m.box:_fire("OnCursorChanged", 0, -150, 2, 14)
+    ok(m.bar:GetValue() == 150 + 14 - 100, "a cursor below the view scrolls it down to show the line: " .. m.bar:GetValue())
+    m.scroll:SetVerticalScroll(m.bar:GetValue())
+    m.box:_fire("OnCursorChanged", 0, -100, 2, 14)
+    ok(m.bar:GetValue() == 64, "a cursor already in view leaves it")
+    m.box:_fire("OnCursorChanged", 0, -20, 2, 14)
+    ok(m.bar:GetValue() == 20, "a cursor above the view scrolls it up to the line")
+end)
+
+case("CreateMultilineField reads its range afresh when the cursor moves past the old end", function()
+    local env, _, ui = setup()
+    local parent = env.CreateFrame("Frame", nil, env.UIParent)
+    local m = ui:CreateMultilineField(parent)
+    m.scroll._h = 100
+    m.scroll._vrange = 0
+    m.scroll.UpdateScrollChildRect = function(s) s._vrange = 14.5 end
+    m.box:_fire("OnCursorChanged", 0, -100, 2, 14)
+    ok(m.bar:GetValue() == 14 and select(2, m.bar:GetMinMaxValues()) == 14,
+       "a new last line scrolls into view before the range event, floored: " .. m.bar:GetValue())
+end)
+
+case("CreateMultilineField's SetText takes the box's width and puts the cursor at the top", function()
+    local env, _, ui = setup()
+    local parent = env.CreateFrame("Frame", nil, env.UIParent)
+    local m = ui:CreateMultilineField(parent, { readOnly = true })
+    m.scroll._w = 480
+    m.box._cursor = 99
+    m:SetText("line one\nline two")
+    ok(m.box._w == 480 and m.box._cursor == 0, "sized to the view and the cursor at the start: "
+       .. tostring(m.box._w) .. "/" .. tostring(m.box._cursor))
+    m.scroll._w = 0
+    m.box._w = 300
+    m:SetText("again")
+    ok(m.box._w == 300, "an unmeasured view leaves the width alone")
+    m.box._cursor = 7
+    m.box._text = "againx"
+    m.box:_fire("OnTextChanged", true)
+    ok(m.box._cursor == 0 and m:GetText() == "again", "an undone keystroke puts the cursor back at the top")
+end)
+
+case("CreateNav refuses two pages with one id", function()
+    local env, _, ui = setup()
+    local parent = env.CreateFrame("Frame", nil, env.UIParent)
+    local good, err = raises(function()
+        ui:CreateNav(parent, { { id = "a", title = "A" }, { id = "a", title = "Again" } })
+    end, "repeats the id a")
+    ok(good and tostring(err):find("test_main.lua", 1, true) ~= nil, "raised at the caller: " .. tostring(err))
+end)
+
+case("an empty title with no body shows no tooltip", function()
+    local env, _, ui = setup()
+    local f = ui:CreateWindow(fullSpec({}))
+    local b = env.CreateFrame("Button", nil, f.body)
+    env.tooltip._shown = false
+    ui:ShowTooltip(b, "", nil)
+    ui:ShowTooltip(b, "", "")
+    ok(not env.tooltip._shown, "ShowTooltip shows nothing")
+    ui:AttachTooltip(b, "", "")
+    env.fire(b, "OnEnter")
+    ok(not env.tooltip._shown, "AttachTooltip shows nothing")
+end)
+
+case("a main window comes to the front when clicked, and a dropdown list opens above it", function()
+    local _, lib, ui = setup()
+    local f = ui:CreateWindow(fullSpec({}))
+    ok(f._toplevel == true, "the window is toplevel")
+    local dd = ui:CreateDropdown(f.body, nil, { { value = 1, label = "A" } }, function() return 1 end, function() end)
+    dd.button._bottom = 500
+    dd.button:Click()
+    ok((lib.shared.popup._raised or 0) == 1, "the list is raised as it opens")
+    ok(lib.shared.popup.closer._strata == "FULLSCREEN", "its click catcher sits over a window in the DIALOG strata")
+    lib.shared.popup:Hide()
+    f:SetFrameStrata("FULLSCREEN_DIALOG")
+    local order = {}
+    local closer, p = lib.shared.popup.closer, lib.shared.popup
+    local cRaise, pRaise = closer.Raise, p.Raise
+    closer.Raise = function(s) order[#order + 1] = "closer" return cRaise(s) end
+    p.Raise = function(s) order[#order + 1] = "list" return pRaise(s) end
+    dd.button:Click()
+    ok(closer._strata == "FULLSCREEN_DIALOG" and closer:IsShown(), "over a window raised above the world map, the catcher follows it")
+    ok(table.concat(order, ",") == "closer,list", "the catcher is raised over the window and the list over the catcher: " .. table.concat(order, ","))
+end)
+
+case("a tooltip title made only of color codes counts as none", function()
+    local env, _, ui = setup()
+    local f = ui:CreateWindow(fullSpec({}))
+    local b = env.CreateFrame("Button", nil, f.body)
+    env.tooltip._shown = false
+    ui:ShowTooltip(b, "|cffff0000|r", nil)
+    ok(not env.tooltip._shown, "ShowTooltip shows nothing")
+    ui:AttachTooltip(b, "|cffff0000|r", nil)
+    env.fire(b, "OnEnter")
+    ok(not env.tooltip._shown, "AttachTooltip shows nothing")
+end)
+
+case("a main window shown in combat takes Escape once combat ends", function()
+    local env, _, ui = setup()
+    local f = ui:CreateWindow(fullSpec({}))
+    env.combat = true
+    f:Show()
+    local wait = f._euiEscapeWait
+    ok(f._keyboard == false and wait._events.PLAYER_REGEN_ENABLED, "in combat it waits")
+    env.combat = false
+    env.fire(wait, "OnEvent", "PLAYER_REGEN_ENABLED")
+    ok(f._keyboard == true and not wait._events.PLAYER_REGEN_ENABLED, "and takes the keyboard once combat ends")
+    env.combat = true
+    f:Hide()
+    f:Show()
+    f:Hide()
+    ok(not wait._events.PLAYER_REGEN_ENABLED and f._keyboard == false, "hidden before combat ends, it stops waiting")
+end)
+
+case("NeedsClientFont answers as the library's own font rule", function()
+    local _, _, ui = setup()
+    ok(ui:NeedsClientFont(CYRILLIC) == true and ui:NeedsClientFont("Quest") == false
+       and ui:NeedsClientFont("Caf\195\169") == false, "Cyrillic yes, plain and accented Latin no")
 end)
 
 print(("test_main: %d passed, %d failed"):format(pass, fail))

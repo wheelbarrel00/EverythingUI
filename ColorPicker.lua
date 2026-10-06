@@ -300,6 +300,7 @@ function Context:CreateColorPicker(content, label, getter, setter, tooltip, hasA
 
     holder.button  = swatch
     holder.clear   = clear
+    holder._euiClearGap = CLEAR_GAP
     holder.paint   = paint
     holder.Refresh = paint
     if tooltip then self:AttachTooltip(holder, label, tooltip) end
