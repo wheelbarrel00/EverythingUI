@@ -107,6 +107,7 @@ case("the look: a surface card, the title, the text, a primary button and a seco
     end
     ok(f.accept.text:GetText() == "Reset" and aFill and sameColor(aFill._color, ar, ag, ab),
        "the first button is primary, on the accent")
+    ok(f.accept:IsShown() and not f.acceptDanger:IsShown(), "a plain confirm shows no danger button")
     ok(f.cancel:IsShown() and f.cancel.text:GetText() == "Not now", "the second is secondary, with its own word")
     ok(point(f.accept, "BOTTOMRIGHT")[2] == -20 and point(f.accept, "BOTTOMRIGHT")[3] == 16,
        "the primary at the bottom right")
@@ -123,6 +124,69 @@ case("a dialog with one button has no secondary", function()
     ok(not f.cancel:IsShown() and f.accept:IsShown() and f.accept.text:GetText() == "OK", "OK alone, at the right")
     ui:ShowDialog(confirm())
     ok(f.cancel:IsShown(), "and the next two-button dialog brings the secondary back")
+end)
+
+local function regions(frame, layerName)
+    local found = {}
+    for _, r in ipairs({ frame:GetRegions() }) do
+        if r._layer == layerName and r._color then found[#found + 1] = r end
+    end
+    return found
+end
+
+case("a confirm that erases something draws its first button in the danger style", function()
+    local env, _, ui = setup()
+    local accepted, during = 0, nil
+    ui:ShowDialog(confirm({ danger = true, onAccept = function()
+        accepted = accepted + 1
+        during = ui._dialog:IsShown()
+    end }))
+    local f = ui._dialog
+    local d = f.acceptDanger
+    ok(d:IsShown() and not f.accept:IsShown() and f.shownAccept == d, "the danger button in place of the primary")
+    ok(d.text:GetText() == "Reset", "carrying button1")
+    local edges = regions(d, "BORDER")
+    local allDanger = #edges == 4
+    for _, e in ipairs(edges) do allDanger = allDanger and sameColor(e._color, ui:Color("danger")) end
+    ok(allDanger and sameColor(d.text._textColor, ui:Color("danger")), "outlined and lettered in danger")
+    ok(#regions(d, "BACKGROUND") == 0, "with no accent fill")
+    local hi = regions(d, "HIGHLIGHT")
+    ok(#hi == 1 and sameColor(hi[1]._color, ui:Color("danger")) and hi[1]._color[4] == 0.12, "danger at 0.12 on hover")
+    ok(point(d, "BOTTOMRIGHT")[2] == -20 and point(d, "BOTTOMRIGHT")[3] == 16, "at the bottom right, where the primary sits")
+    ok(point(f.cancel, "RIGHT")[2] == d and point(f.cancel, "RIGHT")[3] == "LEFT" and point(f.cancel, "RIGHT")[4] == -10
+       and #f.cancel._points == 1, "the secondary just left of it, with no anchor left on the primary")
+    ok(d._w == #"Reset" * 6 + 28, "sized to its label")
+    ok(f._h == 20 + 15 + 10 + 13 + 20 + 32 + 16, "as tall as any confirm: " .. tostring(f._h))
+    env.fire(f, "OnKeyDown", "ENTER")
+    ok(accepted == 0 and f:IsShown(), "a stray Enter does not erase anything")
+    d:Click()
+    ok(accepted == 1 and during == true and not f:IsShown(), "a click accepts, the callback first")
+    local cancelled = false
+    ui:ShowDialog(confirm({ danger = true, onCancel = function() cancelled = true end }))
+    env.fire(f, "OnKeyDown", "ESCAPE")
+    ok(cancelled and not f:IsShown(), "Escape cancels it")
+end)
+
+case("the danger style is chosen again on every show of the one dialog", function()
+    local env, _, ui = setup()
+    ui:ShowDialog(confirm({ danger = true }))
+    local f = ui._dialog
+    ui:ShowDialog(confirm({ button1 = "Save" }))
+    ok(f.accept:IsShown() and not f.acceptDanger:IsShown() and f.shownAccept == f.accept, "the next plain confirm is primary again")
+    ok(f.accept.text:GetText() == "Save" and f.accept._w == #"Save" * 6 + 28, "with its own label and width")
+    ok(point(f.cancel, "RIGHT")[2] == f.accept and #f.cancel._points == 1, "and the secondary beside it")
+    ui:ShowDialog(confirm({ danger = false }))
+    ok(f.accept:IsShown() and not f.acceptDanger:IsShown(), "danger = false is a plain confirm")
+    ui:ShowDialog(confirm({ danger = true, button1 = "Delete" }))
+    ok(f.acceptDanger:IsShown() and not f.accept:IsShown() and f.acceptDanger.text:GetText() == "Delete",
+       "and danger comes back with its own label")
+    ok(point(f.cancel, "RIGHT")[2] == f.acceptDanger, "the secondary following it")
+    ui:ShowDialog({ title = "EQ Objective Tracker", text = "Done.", button1 = "OK" })
+    ok(f.accept:IsShown() and not f.acceptDanger:IsShown() and not f.cancel:IsShown(), "a one-button dialog is primary")
+    ui:ShowDialog(confirm({ danger = true }))
+    f.acceptDanger.text._measure = 120
+    env.runTimers()
+    ok(f.acceptDanger._w == 120 + 28, "the danger button is sized again a frame later too")
 end)
 
 case("a button runs its callback with the dialog still up, then hides it", function()
@@ -398,6 +462,9 @@ case("ShowDialog checks what it is given, and the error names the caller", funct
     ok(not pcall(ui.ShowDialog, ui, { text = "X", button1 = "OK" }), "no title is refused")
     ok(not pcall(ui.ShowDialog, ui, confirm({ onAcept = function() end })), "a misspelled field is refused")
     ok(not pcall(ui.ShowDialog, ui, confirm({ hasEditBox = "yes" })), "a field of the wrong type is refused")
+    ok(not pcall(ui.ShowDialog, ui, confirm({ danger = "yes" })), "danger must be a boolean")
+    ok(not pcall(ui.ShowDialog, ui, confirm({ dangerous = true })), "and a misspelling of it is refused")
+    ok(pcall(ui.ShowDialog, ui, confirm({ danger = true })), "danger itself is accepted")
     local good, err = pcall(function()
         local r = ui:ShowDialog({ title = "T", text = "X" })
         return r

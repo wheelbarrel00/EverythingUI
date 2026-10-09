@@ -439,7 +439,7 @@ MUTANTS = [
     ('Dialog.lua', '    C_Timer.After(0, function() if f:IsShown() then layout(f) end end)\n', '', 'text measured hidden is never sized again'),
     ('Dialog.lua', '    C_Timer.After(0, function() if f:IsShown() then layout(f) end end)', '    C_Timer.After(0, function() layout(f) end)', 'a closed dialog is sized again'),
     ('Dialog.lua', '    if not h or h <= 0 then h = lib.tokens.typography[style].size end', '    if not h then h = lib.tokens.typography[style].size end', 'an unmeasured dialog line takes no height'),
-    ('Dialog.lua', '    f.accept:Fit()\n', '', 'the primary is not sized to its label'),
+    ('Dialog.lua', '    f.shownAccept:Fit()\n', '', 'the primary is not sized to its label'),
     ('Dialog.lua', '                + (f.edit:IsShown() and (FIELD_GAP + sp.fieldHeight) or 0)\n', '', 'the dialog does not grow for its field'),
     ('Dialog.lua', '        error("EverythingUI: ShowDialog needs title, text and button1", 2)', '        error("EverythingUI: ShowDialog needs title, text and button1", 1)', 'ShowDialog error points at the library'),
     ('Dialog.lua', '        if DIALOG_FIELDS[key] ~= type(v) then', '        if false then', 'a misspelled dialog field is accepted'),
@@ -949,6 +949,20 @@ MUTANTS = [
     ('Dropdown.lua', '    p:Show()\n    p.closer:Raise()\n', '    p:Show()\n', 'the catcher not raised over its window'),
     ('Controls.lua', 'function Context:ShowTooltip(owner, title, body)\n    title = title and stripEscapes(title) or nil\n    if title == "" then title = nil end\n', 'function Context:ShowTooltip(owner, title, body)\n    title = title and stripEscapes(title) or nil\n', 'a host title of color codes draws a blank line'),
     ('Controls.lua', 'function Context:AttachTooltip(frame, title, body)\n    title = title and stripEscapes(title) or nil\n    if title == "" then title = nil end\n', 'function Context:AttachTooltip(frame, title, body)\n    title = title and stripEscapes(title) or nil\n', 'an attached title of color codes still hooks'),
+    # MINOR 37, the dialog's danger confirm. The secondary's ClearAllPoints before it is re-anchored
+    # has no mutant because it is EQUIVALENT, as the field's is: only RIGHT is ever set on it.
+    ('Dialog.lua', ' danger = "boolean",', '', 'danger refused as an unknown field'),
+    ('Dialog.lua', '    local danger = opts.danger == true', '    local danger = false', 'danger never drawn'),
+    ('Dialog.lua', '    local danger = opts.danger == true', '    local danger = true', 'every confirm drawn in danger'),
+    ('Dialog.lua', '    f.accept:SetShown(not danger)\n', '', 'the primary left up beside the danger button'),
+    ('Dialog.lua', '    f.acceptDanger:SetShown(danger)\n', '', 'the danger button left up on a plain confirm'),
+    ('Dialog.lua', '    f.shownAccept = danger and f.acceptDanger or f.accept', '    f.shownAccept = f.accept', 'label, width and secondary follow the hidden primary'),
+    ('Dialog.lua', '    f.shownAccept:SetText(opts.button1)', '    f.accept:SetText(opts.button1)', 'the danger button keeps an old label'),
+    ('Dialog.lua', '    f.cancel:SetPoint("RIGHT", f.shownAccept, "LEFT"', '    f.cancel:SetPoint("RIGHT", f.accept, "LEFT"', 'the secondary sits beside the hidden primary'),
+    ('Dialog.lua', '    f.shownAccept:Fit()\n', '    f.accept:Fit()\n', 'the danger button is not sized to its label'),
+    ('Dialog.lua', 'function() finish(f, true) end, nil, "danger")', 'function() finish(f, true) end, nil, "primary")', 'the danger button drawn as a primary'),
+    ('Dialog.lua', '    f.acceptDanger = ctx:CreateButton(f, "", nil, function() finish(f, true) end', '    f.acceptDanger = ctx:CreateButton(f, "", nil, function() finish(f, false) end', 'the danger button cancels'),
+    ('Dialog.lua', '    f.acceptDanger:SetPoint("BOTTOMRIGHT", -PADDING, BUTTON_BOTTOM)\n', '', 'the danger button has no place'),
 ]
 
 
