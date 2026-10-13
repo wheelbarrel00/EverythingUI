@@ -22,6 +22,7 @@ read_globals = {
     "IsShiftKeyDown",
     "IsMouseButtonDown",
     "SetCursor",
+    "BackdropTemplateMixin",
     -- Classic's picker is driven by assigning its callbacks and opacity onto the frame itself.
     ColorPickerFrame = {
         other_fields = true,

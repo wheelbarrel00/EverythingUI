@@ -212,8 +212,7 @@ function kit.Highlight(ctx, frame, color)
     return t
 end
 
--- A file that fails to load leaves the string with no font at all, and SetFont's return value is
--- only documented for EditBox, so success is read back with GetFont.
+-- A file that fails to load leaves the string with no font at all, so success is read back with GetFont.
 function kit.Style(ctx, fs, style, color)
     local file, size, flags = ctx:Font(style)
     fs:SetFont(file, size, flags)
@@ -349,6 +348,7 @@ function kit.Scroll(ctx, parent)
     bar:SetValue(0)
     bar:Hide()
     bar:SetScript("OnValueChanged", function(_, v) sf:SetVerticalScroll(v) end)
+    sf._euiBar = bar
 
     sf:SetScript("OnScrollRangeChanged", function(self, _, yrange)
         -- Floored as Blizzard's own scroll frames floor it, so a fraction of a unit is no range at all.

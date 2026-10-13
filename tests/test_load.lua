@@ -224,7 +224,8 @@ case("tokens match section 4 of the design spec", function()
     local SPACING = {
         windowWidth = 1100, windowHeight = 720, headerHeight = 48, sidebarWidth = 196,
         footerHeight = 56, previewWidth = 320, navItemHeight = 36, navItemPadding = 12,
-        navItemGap = 2, contentTop = 20, contentSides = 24, groupGap = 22, groupLabelGap = 8,
+        navItemGap = 2, navChildHeight = 28, stripHeight = 52,
+        contentTop = 20, contentSides = 24, groupGap = 22, groupLabelGap = 8,
         rowHeight = 44, dependentRowHeight = 40, listRowHeight = 28, rowPadding = 14, dependentIndent = 40,
         labelColumn = 150, valueColumn = 44, checkbox = 16, swatchWidth = 34, swatchHeight = 22,
         buttonHeight = 32, segmentHeight = 26, border = 1,

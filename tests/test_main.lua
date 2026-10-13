@@ -496,6 +496,40 @@ case("a search field hints while empty and hands over trimmed text on Enter", fu
     ok(raises(function() ui:CreateSearchField(parent, "x") end, "needs onSubmit"), "onSubmit is required")
 end)
 
+case("a press away from a focused search field lets go of the keyboard, as retail does on its own", function()
+    local env, _, ui = setup()
+    local parent = env.CreateFrame("Frame", nil, env.UIParent)
+    local s = ui:CreateSearchField(parent, "Find quest", function() end)
+    local box = s.box
+    ok(not box._events.GLOBAL_MOUSE_DOWN, "nothing listens while the field is idle")
+    box:SetFocus()
+    env.fire(box, "OnEditFocusGained")
+    ok(box._events.GLOBAL_MOUSE_DOWN, "with the keyboard it listens for a press anywhere")
+    s._mouseOver = true
+    env.fire(box, "OnEvent", "GLOBAL_MOUSE_DOWN")
+    ok(env.focus == box, "a press on the field, its magnifier included, keeps typing")
+    s._mouseOver = false
+    env.fire(box, "OnEvent", "GLOBAL_MOUSE_DOWN")
+    ok(env.focus == nil, "a press anywhere else lets go")
+    env.fire(box, "OnEditFocusLost")
+    ok(not box._events.GLOBAL_MOUSE_DOWN, "then it stops listening")
+    ok(s.hint:IsShown(), "and the hint's own focus paint still runs")
+end)
+
+case("a search field builds and takes the keyboard on a client without the global press event", function()
+    local env, lib = setup()
+    env.unknownEvents.GLOBAL_MOUSE_DOWN = true
+    local ui = newCtx(env, lib)
+    local parent = env.CreateFrame("Frame", nil, env.UIParent)
+    local good = pcall(function()
+        local s = ui:CreateSearchField(parent, "Find quest", function() end)
+        s.box:SetFocus()
+        env.fire(s.box, "OnEditFocusGained")
+        env.fire(s.box, "OnEditFocusLost")
+    end)
+    ok(good, "nothing raises when the event is refused")
+end)
+
 local function listIn(ui, env, onClick)
     local parent = env.CreateFrame("Frame", nil, env.UIParent)
     local l = ui:CreateList(parent, onClick)

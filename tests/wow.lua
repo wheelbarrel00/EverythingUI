@@ -31,7 +31,8 @@ end
 
 function M.newEnv(opts)
     opts = opts or {}
-    local env = { combat = false, timers = {}, created = {}, badFonts = {}, errors = {}, unknownEvents = {} }
+    local env = { combat = false, timers = {}, created = {}, badFonts = {}, deadFonts = {}, keptFonts = {}, errors = {},
+                  unknownEvents = {} }
 
     local Region = {}
     -- A point of a name already set replaces it, as the client does, so only a leftover point of
@@ -115,6 +116,11 @@ function M.newEnv(opts)
     local FontString = copyInto({}, Region)
     -- A font file replaces a font object, so a string given one no longer reads as the client's font.
     function FontString:SetFont(file, size, flags)
+        -- Both seen in game by Cooldown Master: a path LibSharedMedia still names after its addon was
+        -- removed raises "Invalid font asset", and a face can fail by returning false and keeping the
+        -- string's previous font.
+        if env.deadFonts[file] then error("Invalid font asset", 2) end
+        if env.keptFonts[file] then return false end
         self._fontObject = nil
         if env.badFonts[file] then self._font = nil return false end
         self._font = { file, size, flags }
@@ -248,7 +254,13 @@ function M.newEnv(opts)
 
     local Slider = copyInto({}, Frame)
     function Slider:SetOrientation(o) self._orientation = o end
-    function Slider:SetMinMaxValues(lo, hi) self._min, self._max = lo, hi end
+    -- As the client does (retail and Era, 2026-10-11): a value outside the new range is clamped, and the
+    -- clamp fires OnValueChanged.
+    function Slider:SetMinMaxValues(lo, hi)
+        self._min, self._max = lo, hi
+        local v = self._value
+        if v ~= nil and (v < lo or v > hi) then self:SetValue(v) end
+    end
     function Slider:GetMinMaxValues() return self._min or 0, self._max or 0 end
     function Slider:SetValueStep(s) self._step = s end
     function Slider:SetObeyStepOnDrag(v) self._obey = v end
@@ -297,9 +309,14 @@ function M.newEnv(opts)
     function EditBox:SetTextInsets(...) self._insets = { ... } end
     function EditBox:SetMultiLine(v) self._multiLine = v end
     function EditBox:IsMultiLine() return self._multiLine == true end
+    function EditBox:SetNumeric(v) self._numeric = v end
+    function EditBox:IsNumeric() return self._numeric == true end
+    function EditBox:SetJustifyH(j) self._justifyH = j end
+    function EditBox:SetTextColor(r, g, b, a) self._textColor = { r, g, b, a } end
 
     local GameTooltip = copyInto({}, Frame)
     function GameTooltip:SetOwner(owner, anchor) self._owner, self._anchor = owner, anchor self._lines = {} end
+    function GameTooltip:IsOwned(frame) return self._owner == frame end
     function GameTooltip:SetText(text, r, g, b, a, wrap)
         self._lines = { { text = text, color = { r, g, b, a }, wrap = wrap } }
     end
@@ -312,6 +329,17 @@ function M.newEnv(opts)
         ScrollFrame = ScrollFrame, GameTooltip = GameTooltip, EditBox = EditBox,
     }
 
+    -- What BackdropTemplate gives a frame. Opt in with newEnv({ backdrop = true }), which also defines
+    -- BackdropTemplateMixin, so a host test that never asked keeps the client with no template.
+    local Backdrop = {}
+    function Backdrop:SetBackdrop(b)
+        self._backdrop = b
+        self._backdropSets = (self._backdropSets or 0) + 1
+    end
+    function Backdrop:GetBackdrop() return self._backdrop end
+    function Backdrop:SetBackdropBorderColor(r, g, b, a) self._borderColor = { r, g, b, a } end
+    if opts.backdrop then env.BackdropTemplateMixin = {} end
+
     function env._new(methods, kind, parent)
         local o = setmetatable({
             _type = kind, _parent = parent, _points = {}, _shown = true,
@@ -323,11 +351,15 @@ function M.newEnv(opts)
     env.UIParent = env._new(Frame, "Frame", nil)
     env.UIParent._w, env.UIParent._h = opts.uiWidth or 1366, opts.uiHeight or 768
 
-    function env.CreateFrame(kind, name, parent)
+    function env.CreateFrame(kind, name, parent, template)
         local methods = TYPES[kind]
         if not methods then error("the model has no frame type " .. tostring(kind)) end
         local f = env._new(methods, kind, parent)
         f._name = name
+        f._template = template
+        if template and env.BackdropTemplateMixin and template:find("BackdropTemplate", 1, true) then
+            for k, v in pairs(Backdrop) do f[k] = v end
+        end
         -- The client creates a child one level above its parent.
         if parent then
             parent._children[#parent._children + 1] = f

@@ -27,14 +27,20 @@
 -- That is the whole of the flavor asymmetry - the DEFECT is shared, the REACHABILITY is not.
 --
 -- AND THE SECOND, WHICH IS WHAT THE REPORTER ACTUALLY HIT. ElvUI's Color Picker Plus reads
--- that same slider as TRANSPARENCY - the pre-10.0 ColorPickerFrame.opacity convention -
--- while Blizzard's Classic GetColorAlpha reads it as ALPHA. Measured on 1.15.9:
+-- that same slider as TRANSPARENCY - the ColorPickerFrame.opacity convention Blizzard's Classic
+-- picker still uses - and its box shows the alpha that reading gives. Blizzard's Classic GetColorAlpha
+-- only hands the slider's value back. Measured on 1.15.9:
 --
 --   slider 0.84999996  ->  ColorPPBoxA reads 15
 --   slider 0           ->  ColorPPBoxA reads 100, GetColorAlpha reads 0
 --
 -- So its Class button writes 0 meaning OPAQUE and the host stored it as fully transparent.
 -- Both UIs then agreed the color was fine and the bar was invisible.
+--
+-- AND THE THIRD. Blizzard's own Classic code reads the slider backwards too: its chat window
+-- seeds 1 - alpha and reads 1 - GetColorAlpha(). Until MINOR 38 the library read a picker with
+-- no box straight, and on Era a color dragged to + went invisible (2026-10-10). The Mainline
+-- picker (retail, Forever) has no OpacitySliderFrame and reads straight, modeled below too.
 --
 -- The cases came over from EQOT's docs/test_color_picker.lua with the picker (decision 13). They
 -- load the WHOLE library here, so the session state, the OnHide hook, the Class button and the
@@ -186,6 +192,57 @@ local function newClassicPicker(env, startAlpha, legacy)
     return cp
 end
 
+-- Blizzard's Mainline picker, transcribed from Blizzard_ColorPickerFrame/Mainline/ColorPickerFrame.lua
+-- (the live branch, and Forever's own copy adds only gamepad code). The alpha lives on
+-- the ColorSelect, read straight by GetColorAlpha, and there is no OpacitySliderFrame. OnShow seeds
+-- SetColorAlpha(opacity). Whether a SetColorAlpha from code fires OnColorSelect is not in the source,
+-- so here it does not.
+-- The user moving the alpha thumb fires OnColorSelect, which calls swatchFunc then opacityFunc.
+local function newMainlinePicker(env)
+    local cp = env.CreateFrame("Frame", "ColorPickerFrame", env.UIParent)
+    cp._shown = false
+    cp._r, cp._g, cp._b, cp._a = 1, 1, 1, 1
+    local function colorSelect()
+        if cp.swatchFunc then cp.swatchFunc() end
+        if cp.opacityFunc then cp.opacityFunc() end
+    end
+    cp:SetScript("OnShow", function(self)
+        self._alphaShown = self.hasOpacity and true or false
+        if self.hasOpacity then self._a = self.opacity end
+    end)
+    function cp:GetColorRGB() return self._r, self._g, self._b end
+    function cp:GetColorAlpha() return self._a end
+    function cp:SetupColorPickerAndShow(info)
+        self.swatchFunc  = info.swatchFunc
+        self.hasOpacity  = info.hasOpacity
+        self.opacityFunc = info.opacityFunc
+        self.opacity     = info.opacity
+        self.previousValues = { r = info.r, g = info.g, b = info.b, a = info.opacity }
+        self.cancelFunc  = info.cancelFunc
+        self._r, self._g, self._b = info.r, info.g, info.b
+        colorSelect()
+        self:Show()
+    end
+    function cp:ClickOkay()
+        self.swatchFunc()
+        if self.opacityFunc then self.opacityFunc() end
+        self:Hide()
+    end
+    function cp:ClickCancel()
+        if self.cancelFunc then self.cancelFunc(self.previousValues) end
+        self:Hide()
+    end
+    function cp:DragAlpha(a)
+        self._a = a
+        colorSelect()
+    end
+    function cp:PickColor(r, g, b)
+        self._r, self._g, self._b = r, g, b
+        colorSelect()
+    end
+    return cp
+end
+
 -- ElvUI's Color Picker Plus, read off Game/Classic/Blizzard/ColorPicker.lua rather than
 -- inferred. Three things about it are load-bearing and an earlier model had all three wrong.
 -- Its alpha box is AlphaValue(num) = floor(((1 - num) * 100) + .05), so it truncates rather
@@ -262,7 +319,9 @@ local function session(opts)
         env.ColorPPBoxA = box
         s.picker = cp
     end
-    if opts.picker ~= false then
+    if opts.mainline then
+        s.install(newMainlinePicker(env), nil)
+    elseif opts.picker ~= false then
         local cp = newClassicPicker(env, opts.startAlpha or 0, opts.legacy)
         s.install(cp, opts.elvui ~= nil and attachColorPP(cp, opts.elvui) or nil)
     end
@@ -315,7 +374,7 @@ case("a picker opened on a CLOSED frame commits its own alpha", function()
     bar:Open()
     ok(s.picker:IsShown(), "the picker is up")
     ok(s.picker.slider:IsShown(), "an alpha picker shows its opacity slider")
-    ok(s.picker.slider:GetValue() == 0.85, "the slider carries the color's own alpha")
+    ok(near(s.picker.slider:GetValue(), 0.15), "the slider carries the color's own alpha, read backwards as Classic's runs")
     s.picker:SetColorRGB(0.94, 0.54, 0.72)
     drive(s.picker, "ClickOkay")
     ok(A(bar) == 0.85, "the alpha survives the pick")
@@ -334,7 +393,7 @@ case("the reported bug: a second swatch opened while the picker is still up", fu
     local bar = swatch(s, { r = 0.80, g = 0.60, b = 0.20, a = 0.85 }, true)
     bar:Open()
     ok(s.picker.slider:IsShown(), "the opacity slider must be shown for an alpha picker")
-    ok(s.picker.slider:GetValue() == 0.85, "and must carry THIS color's alpha, not the last one's")
+    ok(near(s.picker.slider:GetValue(), 0.15), "and must carry THIS color's alpha, not the last one's")
 
     s.picker:SetColorRGB(0.94, 0.54, 0.72)
     drive(s.picker, "ClickOkay")
@@ -346,7 +405,7 @@ case("a re-seed must not inherit the previous swatch's alpha either", function()
     local s = session()
     local first = swatch(s, { r = 0.1, g = 0.2, b = 0.3, a = 0.25 }, true)
     first:Open()
-    ok(s.picker.slider:GetValue() == 0.25, "the first picker loads its own alpha")
+    ok(near(s.picker.slider:GetValue(), 0.75), "the first picker loads its own alpha")
 
     local second = swatch(s, { r = 0.8, g = 0.6, b = 0.2, a = 0.85 }, true)
     second:Open()
@@ -362,16 +421,28 @@ case("the opacity control still wins once the user moves it", function()
     local s = session()
     local bar = swatch(s, { r = 0.8, g = 0.6, b = 0.2, a = 0.85 }, true)
     bar:Open()
-    drive(s.picker, "DragOpacity", 0.40)
-    ok(A(bar) == 0.40, "dragging the opacity slider commits that alpha")
+    drive(s.picker, "DragOpacity", 0.60)
+    ok(near(A(bar), 0.40), "dragging the opacity slider commits the alpha it stands for")
     s.picker:SetColorRGB(0.94, 0.54, 0.72)
     drive(s.picker, "ClickOkay")
-    ok(A(bar) == 0.40, "and it survives a later color pick")
+    ok(near(A(bar), 0.40), "and it survives a later color pick")
 
     -- Zero is reachable on purpose. That is not the bug - the bug was reaching it without
     -- touching the control.
+    drive(s.picker, "DragOpacity", 1)
+    ok(A(bar) == 0, "a deliberate 0 is still allowed, at the slider's - end")
+end)
+
+case("Blizzard's Classic slider: + is opaque and - is invisible", function()
+    -- What the author saw on Era with no picker addon (2026-10-10): before MINOR 38 a drag to +
+    -- made a bar invisible and a drag to - made it solid.
+    local s = session()
+    local bar = swatch(s, { r = 0.8, g = 0.6, b = 0.2, a = 0.5 }, true)
+    bar:Open()
     drive(s.picker, "DragOpacity", 0)
-    ok(A(bar) == 0, "a deliberate 0 is still allowed")
+    ok(A(bar) == 1, "dragged to +, the slider's top and its 0, the color is opaque")
+    drive(s.picker, "DragOpacity", 1)
+    ok(A(bar) == 0, "dragged to -, the color is invisible")
 end)
 
 case("a stale slider cannot leak in through a no-alpha picker", function()
@@ -414,7 +485,7 @@ case("an unset color still opens, and commits an opaque one", function()
     local s = session()
     local unset = swatch(s, nil, true)
     unset:Open()
-    ok(s.picker.slider:GetValue() == 1, "an unset color seeds a fully opaque picker")
+    ok(s.picker.slider:GetValue() == 0, "an unset color seeds a fully opaque picker, the slider's 0 on Classic")
     s.picker:SetColorRGB(0.2, 0.4, 0.6)
     drive(s.picker, "ClickOkay")
     ok(A(unset) == 1, "and commits alpha 1 rather than 0")
@@ -424,7 +495,7 @@ case("the older field-assignment picker still works", function()
     local s = session({ legacy = true })
     local bar = swatch(s, { r = 0.8, g = 0.6, b = 0.2, a = 0.85 }, true)
     bar:Open()
-    ok(s.picker:IsShown() and s.picker.slider:GetValue() == 0.85, "it opens loaded with the color's alpha")
+    ok(s.picker:IsShown() and near(s.picker.slider:GetValue(), 0.15), "it opens loaded with the color's alpha")
     s.picker:SetColorRGB(0.94, 0.54, 0.72)
     drive(s.picker, "ClickOkay")
     ok(bar.value and bar.value.r == 0.94 and A(bar) == 0.85, "and Okay commits the pick")
@@ -466,9 +537,9 @@ case("a deliberate alpha still lands through ElvUI's slider", function()
     ok(near(A(bar), 0.25), "and the host stores the alpha the user is looking at")
 end)
 
-case("a picker that AGREES with Blizzard is left alone", function()
-    -- The day ElvUI maps the slider as alpha, the calibration must invert nothing. This is
-    -- what stops the fix becoming the next version of the bug.
+case("a picker addon whose box reads the slider straight is followed", function()
+    -- Where a box exists it is the truth. The day ElvUI maps the slider as alpha, the calibration
+    -- must invert nothing. This is what stops the fix becoming the next version of the bug.
     local s = session({ elvui = false })
     local bar = swatch(s, { r = 0.8, g = 0.6, b = 0.2, a = 0.85 }, true)
     bar:Open()
@@ -512,11 +583,46 @@ case("the convention is settled once per session, not re-derived per swatch", fu
     ok(s.state().alphaInverted == true, "and the settled answer is kept")
 end)
 
-case("a client with no picker addon is taken as the game's own picker", function()
+case("a Classic client with no picker addon is taken as Blizzard's picker, which runs backwards", function()
     local s = session()
     ok(s.state().alphaInverted == nil, "nothing is settled before the first open")
     swatch(s, { r = 0.8, g = 0.6, b = 0.2, a = 0.85 }, true):Open()
-    ok(s.state().alphaInverted == false, "the first alpha open with no box settles it as straight")
+    ok(s.state().alphaInverted == true, "the first alpha open with no box settles it as backwards")
+end)
+
+case("the Mainline picker (retail, Forever) reads its alpha straight and settles nothing", function()
+    local s = session({ mainline = true })
+    ok(s.env.OpacitySliderFrame == nil, "the Mainline client has no OpacitySliderFrame")
+    local bar = swatch(s, { r = 0.8, g = 0.6, b = 0.2, a = 0.85 }, true)
+    bar:Open()
+    ok(s.picker:IsShown() and s.picker._alphaShown == true, "an alpha picker shows its alpha control")
+    ok(s.picker:GetColorAlpha() == 0.85, "seeded straight with the color's own alpha")
+    ok(s.state().alphaInverted == nil, "and nothing is settled, so nothing is read backwards")
+    drive(s.picker, "DragAlpha", 0.40)
+    ok(A(bar) == 0.40, "a drag stores the alpha it shows")
+    s.picker:PickColor(0.94, 0.54, 0.72)
+    drive(s.picker, "ClickOkay")
+    ok(A(bar) == 0.40 and bar.value.r == 0.94, "Okay keeps the color and the alpha")
+    bar:Open()
+    drive(s.picker, "DragAlpha", 0.1)
+    drive(s.picker, "ClickCancel")
+    ok(A(bar) == 0.40, "Cancel restores the alpha the picker opened on")
+    local header = swatch(s, { r = 0.9, g = 0.3, b = 0.1 }, false)
+    header:Open()
+    ok(s.picker._alphaShown == false, "a no-alpha picker hides its alpha control")
+    drive(s.picker, "ClickOkay")
+    ok(A(header) == 1, "and commits 1")
+end)
+
+case("the Mainline Class button keeps the alpha straight", function()
+    local s = session({ mainline = true })
+    local bar = swatch(s, { r = 0.8, g = 0.6, b = 0.2, a = 0.3 }, true)
+    bar:Open()
+    local btn = s.state().classButton
+    ok(btn, "the library's Class button is on the Mainline picker too")
+    if btn then guard(btn.Click, btn) end
+    ok(bar.value and bar.value.r == CLASS_COLOR.r and near(A(bar), 0.3), "the class color lands with the alpha it had")
+    ok(s.picker:GetColorAlpha() == 0.3, "and the reopened picker shows that alpha straight")
 end)
 
 case("a box present but unreadable leaves the question open rather than answering it", function()
@@ -534,7 +640,7 @@ case("a box present but unreadable leaves the question open rather than answerin
     bar:Open()
     ok(s.state().alphaInverted == true, "and a later readable one still settles it")
     drive(s.picker, "DragOpacity", 0.75)
-    ok(near(A(bar), 0.25), "with the alpha read the right way round from then on")
+    ok(near(A(bar), 0.25), "with the alpha read the right way around from then on")
 end)
 
 case("merely opening an unset clearable color must not commit one", function()
@@ -954,7 +1060,7 @@ case("the swatch opens the picker on the stored color and commits what it hands 
     guard(h.button.Click, h.button)
     ok(s.picker:IsShown(), "a click opens the picker")
     ok(s.picker._r == 0.8 and s.picker._g == 0.6 and s.picker._b == 0.2
-       and s.picker.slider:GetValue() == 0.85, "seeded with the stored color and alpha")
+       and near(s.picker.slider:GetValue(), 0.15), "seeded with the stored color and alpha")
     s.picker:SetColorRGB(0.1, 0.9, 0.3)
     ok(#writes >= 1 and get().g == 0.9 and get().a == 0.85, "the live preview writes through the setter")
     ok(sameColor(tex._color, 0.1, 0.9, 0.3, 0.85), "and repaints the swatch")

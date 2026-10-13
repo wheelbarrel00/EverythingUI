@@ -43,8 +43,8 @@ local function newCtx(env, lib, over)
     return lib:NewContext(opts)
 end
 
-local function setup()
-    local env = W.newEnv()
+local function setup(envOpts)
+    local env = W.newEnv(envOpts)
     local lib = W.loadLibrary(root, env, "HostA", W.newLibStub())
     return env, lib, newCtx(env, lib)
 end
@@ -458,6 +458,338 @@ case("a reused row gives back everything the last list gave it", function()
        "and every row's color is set again")
 end)
 
+case("a font list survives a face the client will not load", function()
+    local env, lib, ui = setup()
+    local content = newContent(env)
+    env.deadFonts["Fonts\\gone.ttf"] = true
+    env.deadFonts["Fonts\\ru.ttf"] = true
+    env.keptFonts["Fonts\\kept.ttf"] = true
+    local third = "z"
+    local list = function()
+        return { { value = "x", label = "Big Font" }, { value = "gone", label = "Gone" },
+                 { value = third, label = "Third" }, { value = "ru", label = CYRILLIC },
+                 { value = "cy", label = CYRILLIC } }
+    end
+    local current = "gone"
+    local fonts
+    local built = pcall(function()
+        fonts = ui:CreateDropdown(content, "Font", list, function() return current end, function(v) current = v end,
+            nil, nil, nil, function(v) return "Fonts\\" .. v .. ".ttf" end)
+    end)
+    ok(built, "a field whose current face is gone still builds")
+    if not fonts then return end
+    ok(fonts.button.text._font and fonts.button.text._font[1]:find("Barlow-Regular", 1, true),
+       "and draws its label in Barlow")
+    fonts.button._bottom = 500
+    ok(pcall(fonts.button.Click, fonts.button), "opening the list does not raise")
+    local p = lib.shared.popup
+    ok(p:IsShown(), "and the list is up")
+    local r1, r2, r3, r4 = p.rows[1], p.rows[2], p.rows[3], p.rows[4]
+    ok(r1.text._font[1] == "Fonts\\x.ttf", "a face that loads is still previewed")
+    ok(r2.text._font and r2.text._font[1]:find("Barlow-Regular", 1, true) and r2.text:IsShown(),
+       "a gone face falls back to Barlow")
+    ok(r3.text._font[1] == "Fonts\\z.ttf", "the third row shows its own face")
+    ok(r4.data:IsShown() and not r4.text:IsShown(),
+       "a name Barlow cannot draw goes to the client's font when its own face is gone")
+    local r5 = p.rows[5]
+    ok(r5.text:IsShown() and not r5.data:IsShown() and r5.text._font[1] == "Fonts\\cy.ttf",
+       "and keeps its own face when that face loads, as every font name on a Korean or Chinese client does")
+    p:Hide()
+    third = "kept"
+    fonts.button:Click()
+    ok(r3.text._font and r3.text._font[1]:find("Barlow-Regular", 1, true),
+       "a face refused with false does not leave the row in the face it had before")
+    p:Hide()
+    current = "x"
+    fonts:Refresh()
+    ok(fonts.button.text._font[1] == "Fonts\\x.ttf", "and the field previews again once its face loads")
+end)
+
+local function longList(n)
+    local out = {}
+    for i = 1, n do out[i] = { value = i, label = ("Texture %03d"):format(i) } end
+    return out
+end
+
+local function shownCount(p)
+    local n = 0
+    for _, r in ipairs(p.rows) do
+        if r:IsShown() then n = n + 1 end
+    end
+    return n
+end
+
+local function rowFor(p, i) return p.rows[(i - 1) % 11 + 1] end
+
+case("a long list builds only the rows it can show and paints them again as it scrolls", function()
+    local env, lib, ui = setup()
+    local content = newContent(env)
+    local picked, painted = nil, 0
+    local dd = ui:CreateDropdown(content, "Texture", longList(495), function() return 1 end,
+        function(v) picked = v end, nil,
+        function(f, v) painted = painted + 1 f.swatch:SetColorTexture(v / 495, 0, 0, 1) end)
+    dd.button._bottom = 500
+    dd.button:Click()
+    local p = lib.shared.popup
+    ok(#p.rows == 11, "eleven rows for a ten-row list, one more for a line scrolled part way: " .. #p.rows)
+    ok(p.content:GetHeight() == 495 * 22, "while the list keeps its full height, so the bar scrolls all of it")
+    ok(p.rows[1].text:GetText() == "Texture 001" and point(p.rows[1], "TOPLEFT")[5] == 0,
+       "the first row shows the first option at the top")
+    ok(p.rows[11].text:GetText() == "Texture 011" and point(p.rows[11], "TOPLEFT")[5] == -10 * 22,
+       "and the last row the eleventh, at its own place")
+    local paints = painted
+    p.bar:SetValue(5)
+    ok(painted == paints, "a scroll inside one row paints nothing")
+    local third = p.rows[3]
+    p.bar:SetValue(2 * 22)
+    ok(painted == paints + 2, "a scroll of two rows paints only the two coming into view: " .. (painted - paints))
+    ok(rowFor(p, 3) == third and third.text:GetText() == "Texture 003" and point(third, "TOPLEFT")[5] == -2 * 22,
+       "a row still in view keeps its option and its place, so it scrolls with the list")
+    ok(rowFor(p, 12) == p.rows[1] and p.rows[1].text:GetText() == "Texture 012" and point(p.rows[1], "TOPLEFT")[5] == -11 * 22,
+       "the row that left the top takes the option coming in at the foot")
+    p.bar:SetValue(100 * 22 + 5)
+    ok(rowFor(p, 101).text:GetText() == "Texture 101" and point(rowFor(p, 101), "TOPLEFT")[5] == -100 * 22,
+       "a long scroll paints the options now in view, each at its own place")
+    ok(rowFor(p, 111).text:GetText() == "Texture 111" and rowFor(p, 111):IsShown(), "down to the one part in view at the foot")
+    ok(sameColor(rowFor(p, 101).swatch._color, 101 / 495, 0, 0), "each with its own swatch")
+    p.bar:SetValue(484 * 22)
+    ok(rowFor(p, 485):IsShown() and rowFor(p, 485).text:GetText() == "Texture 485", "a row the end of the list will hide")
+    p.bar:SetValue(485 * 22)
+    ok(rowFor(p, 495).text:GetText() == "Texture 495" and not rowFor(p, 496):IsShown() and shownCount(p) == 10,
+       "at the end of the list the row with no option left is hidden")
+    p.bar:SetValue(484 * 22)
+    ok(rowFor(p, 485):IsShown() and rowFor(p, 485).text:GetText() == "Texture 485",
+       "and scrolled back a row it comes back with its option")
+    p.bar:SetValue(100 * 22)
+    rowFor(p, 103):Click()
+    ok(picked == 103, "a pooled row picks the option it shows: " .. tostring(picked))
+    ok(not p:IsShown(), "and the list closes")
+    local made = #env.created
+    dd.button:Click()
+    ok(#env.created == made, "opening it again builds no frame")
+end)
+
+case("the current choice is marked and scrolled to, however far down it is", function()
+    local env, lib, ui = setup()
+    local content = newContent(env)
+    local dd = ui:CreateDropdown(content, "Texture", longList(495), function() return 250 end, function() end)
+    dd.button._bottom = 500
+    dd.button:Click()
+    local p = lib.shared.popup
+    local function marked()
+        local out = {}
+        for _, r in ipairs(p.rows) do
+            if r:IsShown() and sameColor(r.text._textColor, ui:Color("accentHi")) then out[#out + 1] = r end
+        end
+        return out
+    end
+    local m = marked()
+    ok(#m == 1 and m[1].text:GetText() == "Texture 250", "the row showing the current choice is marked")
+    ok(p.bar:GetValue() == 244 * 22, "with the list scrolled to put it in view: " .. p.bar:GetValue())
+    p.bar:SetValue(0)
+    ok(#marked() == 0, "scrolled away, no row that took another option keeps the mark")
+end)
+
+case("a short list after a long one paints its own options and hides the rest", function()
+    local env, lib, ui = setup()
+    local content = newContent(env)
+    local long = ui:CreateDropdown(content, "Texture", longList(495), function() return 1 end, function() end)
+    local short = ui:CreateDropdown(content, "Profile", PROFILES, function() return "a" end, function() end)
+    long.button._bottom, short.button._bottom = 500, 500
+    long.button:Click()
+    local p = lib.shared.popup
+    p:Hide()
+    short.button:Click()
+    ok(p.rows[1].text:GetText() == "Alpha" and p.rows[3].data:GetText() == CYRILLIC,
+       "the short list paints its own options at the same offset")
+    ok(shownCount(p) == 3, "and hides every row it does not need: " .. shownCount(p))
+end)
+
+case("a row painted again for another option takes that option's tip and face, or none", function()
+    local env, lib, ui = setup()
+    local content = newContent(env)
+    local list = longList(40)
+    list[1].tip = "First tip"
+    local dd = ui:CreateDropdown(content, "Font", list, function() return 1 end, function() end, nil, nil, nil,
+        function(v) return (v % 2 == 0) and ("Fonts\\f" .. v .. ".ttf") or nil end)
+    dd.button._bottom = 500
+    dd.button:Click()
+    local p = lib.shared.popup
+    local r1, r2 = p.rows[1], p.rows[2]
+    env.fire(r1, "OnEnter")
+    ok(env.tooltip:IsShown() and env.tooltip._lines[2] and env.tooltip._lines[2].text == "First tip",
+       "the first option's tip shows")
+    env.fire(r1, "OnLeave")
+    ok(r2.text._font[1] == "Fonts\\f2.ttf", "the second row in option 2's face")
+    p.bar:SetValue(22)
+    ok(r1.text:GetText() == "Texture 012" and r1:GetScript("OnEnter") == nil,
+       "scrolled a row, the first row takes option 12, which has no tip, and carries none")
+    ok(r1.text._font[1] == "Fonts\\f12.ttf", "and that option's face")
+    p.bar:SetValue(2 * 22)
+    ok(r2.text:GetText() == "Texture 013" and r2.text._font[1]:find("Barlow-Regular", 1, true),
+       "a row that drew a face takes a plain option back in Barlow")
+end)
+
+case("a host callback raising partway through a paint leaves no row of the last list live", function()
+    local env, lib, ui = setup()
+    local content = newContent(env)
+    local profile
+    local profiles = ui:CreateDropdown(content, "Profile", PROFILES, function() return "a" end,
+        function(v) profile = v end)
+    local boom = true
+    local tex = ui:CreateDropdown(content, "Texture", longList(30), function() return 1 end, function() end, nil,
+        function(f, v)
+            if boom and v == 2 then error("decorate failed") end
+            f.swatch:SetColorTexture(1, 1, 1, 1)
+        end)
+    profiles.button._bottom, tex.button._bottom = 500, 500
+    profiles.button:Click()
+    local p = lib.shared.popup
+    p:Hide()
+    ok(not pcall(tex.button.Click, tex.button), "the host's error reaches its caller")
+    ok(shownCount(p) == 1 and p.rows[1].text:GetText() == "Texture 001",
+       "only the row painted before the error shows: " .. shownCount(p))
+    ok(not p.rows[2]:IsShown() and not p.rows[3]:IsShown(),
+       "the rows the paint never finished stay hidden, so the profile list's picks on them cannot be clicked")
+    for _, r in ipairs(p.rows) do
+        if r:IsShown() then r:Click() end
+    end
+    ok(profile == nil, "and a click on any row showing picks nothing from the profile list")
+    boom = false
+    p:Show()
+    p.bar:SetValue(5)
+    ok(p.rows[2]:IsShown() and p.rows[2].text:GetText() == "Texture 002",
+       "the next paint finishes the row that raised, since it was never marked painted")
+end)
+
+case("a host callback raising during a scroll leaves the row it was painting hidden, and paints it later", function()
+    local env, lib, ui = setup()
+    local content = newContent(env)
+    local boom = true
+    local dd = ui:CreateDropdown(content, "Texture", longList(30), function() return 1 end, function() end, nil,
+        function(f, v)
+            if boom and v == 12 then error("decorate failed") end
+            f.swatch:SetColorTexture(1, 1, 1, 1)
+        end)
+    dd.button._bottom = 500
+    dd.button:Click()
+    local p = lib.shared.popup
+    ok(not pcall(p.bar.SetValue, p.bar, 22), "the host's error reaches the scroll")
+    ok(not p.rows[1]:IsShown(), "the row that was taking option 12 is hidden, not left at its new place showing option 1")
+    boom = false
+    p.bar:SetValue(0)
+    ok(p.rows[1]:IsShown() and p.rows[1].text:GetText() == "Texture 001" and point(p.rows[1], "TOPLEFT")[5] == 0,
+       "scrolled back, it shows option 1 at its own place again")
+end)
+
+case("a tip follows its row's new option when a long scroll brings the same row back under the cursor", function()
+    local env, lib, ui = setup()
+    local content = newContent(env)
+    local list = longList(40)
+    for i, o in ipairs(list) do
+        if i ~= 23 then o.tip = "tip " .. i end
+    end
+    local dd = ui:CreateDropdown(content, "X", list, function() return 1 end, function() end)
+    dd.button._bottom = 500
+    dd.button:Click()
+    local p = lib.shared.popup
+    local r1, r5 = p.rows[1], p.rows[5]
+    env.fire(r1, "OnEnter")
+    ok(env.tooltip:IsShown() and env.tooltip._owner == r1 and env.tooltip._lines[2].text == "tip 1",
+       "hovering the first row shows option 1's tip")
+    p.bar:SetValue(11 * 22)
+    ok(r1.text:GetText() == "Texture 012", "a scroll of eleven rows hands the same row option 12")
+    ok(env.tooltip:IsShown() and env.tooltip._owner == r1 and env.tooltip._lines[2].text == "tip 12",
+       "and the tip follows it")
+    p.bar:SetValue(22 * 22)
+    ok(r1.text:GetText() == "Texture 023" and not env.tooltip:IsShown(), "an option with no tip takes the tip away")
+    p.bar:SetValue(0)
+    env.fire(r5, "OnEnter")
+    p.bar:SetValue(2 * 22)
+    ok(env.tooltip:IsShown() and env.tooltip._owner == r5 and env.tooltip._lines[2].text == "tip 5",
+       "a repaint of other rows leaves a shown tip alone")
+end)
+
+case("previewEdge must be a function, and the error names the caller", function()
+    local env, _, ui = setup()
+    local content = newContent(env)
+    local good, err = pcall(function()
+        local d = ui:CreateDropdown(content, "Border", PROFILES, function() return "a" end, function() end, nil,
+            nil, nil, nil, "Interface\\Borders\\Thin")
+        return d
+    end)
+    ok(not good and tostring(err):find("previewEdge must be a function", 1, true) ~= nil
+       and tostring(err):find("test_controls.lua", 1, true) ~= nil, "a path passed in its place is refused: " .. tostring(err))
+    ok(pcall(ui.CreateDropdown, ui, content, "Border", PROFILES, function() return "a" end, function() end, nil,
+        nil, nil, nil, false), "false still means no preview")
+end)
+
+case("a border list draws a framed sample of each border, in the swatch's place", function()
+    local env, lib, ui = setup({ backdrop = true })
+    local content = newContent(env)
+    local borders = { { value = "None", label = "None" }, { value = "Thin", label = "Thin" },
+                      { value = "Gone", label = "Gone" } }
+    local paths = { Thin = "Interface\\Borders\\Thin", Gone = "" }
+    local current = "Thin"
+    local dd = ui:CreateDropdown(content, "Border Texture", borders, function() return current end,
+        function(v) current = v end, nil, nil, nil, nil, function(v) return paths[v] end)
+    local fe = dd.button.edge
+    ok(fe and fe:IsShown() and fe._w == 28 and fe._h == 18 and point(fe, "LEFT")[2] == 10,
+       "the closed field shows the current border, 28 x 18 in the swatch's place")
+    ok(fe and fe._backdrop and fe._backdrop.edgeFile == "Interface\\Borders\\Thin" and fe._backdrop.edgeSize == 6
+       and sameColor(fe._borderColor, 1, 1, 1), "drawn from its edge file at a 6 px edge, in white")
+    ok(point(dd.button.text, "LEFT")[2] == 10 + 28 + 8, "with the label past it")
+    dd.button._bottom = 500
+    dd.button:Click()
+    local p = lib.shared.popup
+    local r1, r2, r3 = p.rows[1], p.rows[2], p.rows[3]
+    ok(r2.edge and r2.edge:IsShown() and r2.edge._backdrop.edgeFile == "Interface\\Borders\\Thin",
+       "each row shows its own border")
+    ok(r1.edge and not r1.edge:IsShown() and point(r1.text, "LEFT")[2] == 10 + 28 + 8,
+       "None shows no sample but keeps its place, so the labels line up")
+    ok(r3.edge and not r3.edge:IsShown(), "and a border with no file shows none either")
+    local sets = r2.edge._backdropSets
+    p:Hide()
+    dd.button:Click()
+    ok(r2.edge._backdropSets == sets, "painting the same border again does not rebuild it")
+    p:Hide()
+    local plain = ui:CreateDropdown(content, "Profile", PROFILES, function() return "a" end, function() end)
+    plain.button._bottom = 500
+    plain.button:Click()
+    ok(not r2.edge:IsShown() and point(r2.text, "LEFT")[2] == 10,
+       "a plain list after it hides the sample and puts the text home")
+    p:Hide()
+    current = "None"
+    dd:Refresh()
+    ok(not fe:IsShown(), "the closed field hides its sample for None")
+end)
+
+case("a border list on a client without BackdropTemplate draws no sample and raises nothing", function()
+    local env, _, ui = setup()
+    local content = newContent(env)
+    local dd
+    local good = pcall(function()
+        dd = ui:CreateDropdown(content, "Border", { { value = "Thin", label = "Thin" } }, function() return "Thin" end,
+            function() end, nil, nil, nil, nil, function() return "Interface\\Borders\\Thin" end)
+        dd.button._bottom = 500
+        dd.button:Click()
+    end)
+    ok(good, "it builds and opens")
+    ok(dd and dd.button.edge and dd.button.edge._backdrop == nil, "with the sample left blank")
+end)
+
+case("a dropdown takes decorate or previewEdge, not both, and the error names the caller", function()
+    local env, _, ui = setup()
+    local content = newContent(env)
+    local good, err = pcall(function()
+        local d = ui:CreateDropdown(content, "X", PROFILES, function() return "a" end, function() end, nil,
+            function() end, nil, nil, function() end)
+        return d
+    end)
+    ok(not good and tostring(err):find("not both", 1, true) ~= nil and tostring(err):find("test_controls.lua", 1, true) ~= nil,
+       "refused, pointing at the caller: " .. tostring(err))
+end)
+
 case("every context shares one list, and the list follows whoever opened it", function()
     local env, lib, ui = setup()
     local other = newCtx(env, lib, { id = "ED", accent = { 0.165, 0.447, 0.682 } })
@@ -534,6 +866,12 @@ case("a dropdown with onTest gets a speaker that replays the pick", function()
     state.v = "NONE"
     snd:Refresh()
     ok(not snd.speaker:IsShown(), "no sound has nothing to play, so it hides")
+    state.v = "None"
+    snd:Refresh()
+    ok(not snd.speaker:IsShown(), "nor does a no-sound value saved in another case, as Cooldown Master saves None")
+    state.v = "ding"
+    snd:Refresh()
+    ok(snd.speaker:IsShown(), "and a sound brings it back")
 end)
 
 case("closing a window closes a list it opened, and only that one", function()
@@ -868,6 +1206,536 @@ case("CreateCheckbox with an icon puts it between the box and the label", functi
     end)
     ok(not good and tostring(err):find("test_controls.lua", 1, true) ~= nil,
        "an icon that is not a path raises at the caller: " .. tostring(err))
+end)
+
+local function edgeColor(frame)
+    for _, t in ipairs(layer(frame, "BORDER")) do
+        if t._euiOwner == frame then return t._color end
+    end
+end
+
+case("CreateTextField draws a labelled field in the client's font", function()
+    local env, _, ui = setup()
+    local content = newContent(env)
+    local stored = "Lane 1"
+    local h = ui:CreateTextField(content, "Frame Name", function() return stored end, function(v) stored = v end,
+        "The name on the lane's drag handle.", { maxLetters = 32 })
+    ok(h._euiFill == true and h.label:GetText() == "Frame Name", "a full-width labelled row")
+    ok(content._controls[#content._controls] == h, "registered for the per-view Refresh")
+    local f, box = h.field, h.box
+    ok(f and f._h == 30 and point(f, "RIGHT")[1] == "RIGHT" and point(f, "LEFT")[4] == 150 + 14,
+       "a 30 px field from the label column's edge to the row's end")
+    local filled = false
+    for _, t in ipairs(layer(f, "BACKGROUND")) do
+        if sameColor(t._color, ui:Color("input")) then filled = true end
+    end
+    ok(filled and sameColor(edgeColor(f), ui:Color("inputBorder")), "on the input fill with an inputBorder edge")
+    ok(box._fontObject == env.GameFontHighlight and sameColor(box._textColor, ui:Color("text")),
+       "what is typed is in the client's own font object, in the text color")
+    ok(box._maxLetters == 32 and not box:IsNumeric() and box._autoFocus == false,
+       "with the letter limit asked for, and never taking the keyboard by itself")
+    ok(point(box, "TOPLEFT")[2] == 10 and point(box, "BOTTOMRIGHT")[2] == -10 and box._insets[1] == 0 and box._insets[2] == 0,
+       "inset 10 from each end of the field, with no inset of its own")
+    ok(box:GetText() == "Lane 1", "showing the stored text")
+    h:SetLabelWidth(200)
+    ok(point(f, "LEFT")[4] == 200 + 14, "SetLabelWidth moves the field, so AlignLabelColumn lines it up")
+    env.fire(box, "OnEnter")
+    ok(env.tooltip._lines[1] and env.tooltip._lines[1].text == "Frame Name", "the field carries the row's tooltip")
+    env.tooltip._lines = {}
+    env.fire(f, "OnEnter")
+    ok(env.tooltip._lines[1] and env.tooltip._lines[1].text == "Frame Name", "and so does its padding")
+    env.fire(f, "OnMouseDown")
+    ok(env.focus == box, "a click on the padding puts the cursor in it")
+    env.fire(box, "OnEditFocusGained")
+    ok(sameColor(edgeColor(f), ui:Color("borderStrong")), "focused, its edge turns borderStrong")
+    box:ClearFocus()
+    env.fire(box, "OnEditFocusLost")
+    ok(sameColor(edgeColor(f), ui:Color("inputBorder")), "and back when it lets go")
+end)
+
+case("a text field commits on Enter or a click away, and Escape puts its text back", function()
+    local env, _, ui = setup()
+    local content = newContent(env)
+    local stored, calls = "Lane 1", {}
+    local h = ui:CreateTextField(content, "Frame Name", function() return stored end,
+        function(v) stored = v calls[#calls + 1] = v end)
+    local box = h.box
+    box:SetFocus()
+    env.fire(box, "OnEditFocusGained")
+    box._text = "Big"
+    env.fire(box, "OnTextChanged", true)
+    ok(#calls == 0, "typing alone writes nothing")
+    env.fire(box, "OnEnterPressed")
+    ok(#calls == 1 and stored == "Big" and env.focus == nil, "Enter writes the text once and lets go of the keyboard")
+    env.fire(box, "OnEditFocusLost")
+    ok(#calls == 1, "and the focus loss after it writes nothing more")
+
+    box:SetFocus()
+    env.fire(box, "OnEditFocusGained")
+    box._text = "Bigger"
+    box:ClearFocus()
+    env.fire(box, "OnEditFocusLost")
+    ok(#calls == 2 and stored == "Bigger", "a click away commits what was typed")
+
+    box:SetFocus()
+    env.fire(box, "OnEditFocusGained")
+    box._text = "Oops"
+    env.fire(box, "OnEscapePressed")
+    ok(box:GetText() == "Bigger" and env.focus == nil, "Escape puts the text back and lets go of the keyboard")
+    env.fire(box, "OnEditFocusLost")
+    ok(#calls == 2 and stored == "Bigger", "and nothing is written")
+
+    box:SetFocus()
+    env.fire(box, "OnEditFocusGained")
+    box._text = "Bigger"
+    env.fire(box, "OnEnterPressed")
+    ok(#calls == 2, "Enter on unchanged text writes nothing")
+end)
+
+case("a live text field writes every keystroke, and Escape undoes them", function()
+    local env, _, ui = setup()
+    local content = newContent(env)
+    local stored, calls = "[cd.time]", {}
+    local h = ui:CreateTextField(content, "Label Text", function() return stored end,
+        function(v) stored = v calls[#calls + 1] = v end, nil, { live = true, maxLetters = 120 })
+    local box = h.box
+    box:SetFocus()
+    env.fire(box, "OnEditFocusGained")
+    box._text = "[cd.time] x"
+    env.fire(box, "OnTextChanged", true)
+    ok(#calls == 1 and stored == "[cd.time] x", "a keystroke is written as it is typed")
+    box._text = "set by code"
+    env.fire(box, "OnTextChanged", false)
+    ok(#calls == 1, "text the code puts in is not written back")
+    box._text = "[cd.time] xy"
+    env.fire(box, "OnTextChanged", true)
+    env.fire(box, "OnEscapePressed")
+    ok(box:GetText() == "[cd.time]" and stored == "[cd.time]" and env.focus == nil,
+       "Escape puts back the text it had on focus, writes it, and lets go")
+    box:SetFocus()
+    env.fire(box, "OnEditFocusGained")
+    box._text = "[cd.name]"
+    env.fire(box, "OnTextChanged", true)
+    local n = #calls
+    env.fire(box, "OnEnterPressed")
+    env.fire(box, "OnEditFocusLost")
+    ok(#calls == n and env.focus == nil, "Enter and the focus loss write nothing more")
+end)
+
+case("a numeric text field takes digits only and still hands its setter text", function()
+    local env, _, ui = setup()
+    local content = newContent(env)
+    local stored = 12345
+    local got
+    local h = ui:CreateTextField(content, "Trigger ID", function() return stored end, function(v) got = v end, nil,
+        { numeric = true, maxLetters = 10 })
+    ok(h.box:IsNumeric() and h.box._maxLetters == 10, "the box takes digits only")
+    ok(h.box:GetText() == "12345", "a number from the getter is shown as text")
+    h.box:SetFocus()
+    env.fire(h.box, "OnEditFocusGained")
+    h.box._text = "678"
+    env.fire(h.box, "OnEnterPressed")
+    ok(got == "678", "the setter gets the text, for the host to convert")
+    local blank = ui:CreateTextField(content, "Name", function() return nil end, function() end)
+    ok(blank.box:GetText() == "", "nothing stored shows an empty field")
+end)
+
+case("Refresh does not write over what is being typed", function()
+    local env, _, ui = setup()
+    local content = newContent(env)
+    local stored = "A"
+    local h = ui:CreateTextField(content, "Name", function() return stored end, function() end)
+    stored = "B"
+    h:Refresh()
+    ok(h.box:GetText() == "B", "Refresh shows the stored text")
+    h.box:SetFocus()
+    h.box._text = "typing"
+    stored = "C"
+    h:Refresh()
+    ok(h.box:GetText() == "typing", "but leaves a focused field alone")
+    h:SetText("from a tag button")
+    ok(h:GetText() == "from a tag button", "SetText and GetText reach the box")
+end)
+
+case("CreateTextField checks what it is given, and the error names the caller", function()
+    local env, _, ui = setup()
+    local content = newContent(env)
+    local function try(...)
+        local args = { ... }
+        local good, err = pcall(function()
+            local h = ui:CreateTextField(content, "X", unpack(args))
+            return h
+        end)
+        return good, tostring(err)
+    end
+    local get, set = function() return "" end, function() end
+    local good, err = try(get, set, nil, { maxLetter = 3 })
+    ok(not good and err:find("unknown field maxLetter", 1, true) and err:find("test_controls.lua", 1, true),
+       "a misspelled option raises at the caller: " .. err)
+    good, err = try(get, set, nil, { live = "yes" })
+    ok(not good and err:find("live", 1, true), "an option of the wrong type raises: " .. err)
+    good, err = try(get, set, nil, "live")
+    ok(not good and err:find("opts must be a table", 1, true), "opts that are not a table raise: " .. err)
+    good, err = try(nil, set)
+    ok(not good and err:find("needs a getter and a setter", 1, true), "a missing getter raises: " .. err)
+    good, err = try(get, nil)
+    ok(not good and err:find("needs a getter and a setter", 1, true), "a missing setter raises: " .. err)
+    ok(select(1, try(get, set)), "no opts at all is fine")
+end)
+
+case("a slider's readout can be clicked to type an exact value", function()
+    local env, _, ui = setup()
+    local content = newContent(env)
+    local stored, calls = 2, {}
+    local h, s = ui:CreateSlider(content, "Duration (sec)", 0, 10, 0.5, function() return stored end,
+        function(v) stored = v calls[#calls + 1] = v end, "How long the timer runs.")
+    ok(h.entry == nil, "a slider has no field until a host asks for one")
+    ok(h:EnableTyping() == h and h.entry ~= nil, "EnableTyping adds it and hands the slider back")
+    local box = h.entry
+    h:EnableTyping()
+    ok(h.entry == box, "asking twice builds it once")
+    ok(not box:IsShown() and h.value:IsShown(), "it stays hidden behind the readout")
+    ok(box._fontObject == env.GameFontHighlight and box._justifyH == "RIGHT" and box._h == 24,
+       "a 24 px field, right-aligned, in the client's font")
+    ok(box._maxLetters == 12 and box._autoFocus == false and box._insets[1] == 2 and box._insets[2] == 2,
+       "twelve letters, never taking the keyboard by itself, inset 2 a side")
+    local entryFill
+    for _, t in ipairs(layer(box, "BACKGROUND")) do
+        if sameColor(t._color, ui:Color("input")) then entryFill = true end
+    end
+    ok(entryFill and sameColor(edgeColor(box), ui:Color("borderStrong")), "on the input fill with a borderStrong edge")
+    local hit
+    for _, c in ipairs({ h:GetChildren() }) do
+        if c._type == "Button" and c ~= s then hit = c end
+    end
+    ok(hit and point(hit, "LEFT")[2] == h.value and point(hit, "RIGHT")[2] == h.value and #layer(hit, "HIGHLIGHT") == 1,
+       "the readout is a button over the value, with a hover tint")
+    env.fire(hit, "OnEnter")
+    ok(env.tooltip._lines[1] and env.tooltip._lines[1].text == "Duration (sec)", "and it carries the row's tooltip")
+
+    hit:Click()
+    ok(box:IsShown() and not h.value:IsShown() and env.focus == box and box._highlight == true,
+       "a click shows the field with the value selected, so typing replaces it")
+    ok(box:GetText() == "2.0", "holding the number in the step's decimals: " .. box:GetText())
+    box._text = "7.3"
+    env.fire(box, "OnEnterPressed")
+    ok(stored == 7.5 and #calls == 1, "Enter takes the number on the step: " .. tostring(stored))
+    ok(s:GetValue() == 7.5, "with the slider itself on the step, so its thumb and the next edit start there")
+    ok(not box:IsShown() and h.value:IsShown() and h.value:GetText() == "7.5" and env.focus == nil,
+       "and puts the readout back, showing it")
+
+    hit:Click()
+    box._text = "25"
+    env.fire(box, "OnEnterPressed")
+    ok(stored == 10, "a number past the end is held to the range: " .. tostring(stored))
+    hit:Click()
+    box._text = "2,5"
+    env.fire(box, "OnEnterPressed")
+    ok(stored == 2.5, "a comma reads as the decimal point: " .. tostring(stored))
+    local n = #calls
+    hit:Click()
+    box._text = "abc"
+    env.fire(box, "OnEnterPressed")
+    ok(#calls == n and stored == 2.5 and not box:IsShown(), "text that is not a number changes nothing")
+    hit:Click()
+    box._text = "9"
+    env.fire(box, "OnEscapePressed")
+    ok(#calls == n and stored == 2.5 and not box:IsShown() and env.focus == nil, "Escape leaves the value as it was")
+    hit:Click()
+    box._text = "9"
+    env.fire(box, "OnEditFocusLost")
+    ok(#calls == n and stored == 2.5 and not box:IsShown() and h.value:IsShown(), "and so does a click away")
+end)
+
+case("a typed value on an offset or formatted slider", function()
+    local env, _, ui = setup()
+    local content = newContent(env)
+    local stored = 0
+    local h = ui:CreateSlider(content, "X Offset", -100, 100, 1, function() return stored end, function(v) stored = v end)
+    h:EnableTyping()
+    local hit
+    for _, c in ipairs({ h:GetChildren() }) do
+        if c._type == "Button" and c ~= h.slider then hit = c end
+    end
+    hit:Click()
+    h.entry._text = "-250"
+    env.fire(h.entry, "OnEnterPressed")
+    ok(stored == -100, "a negative number past the start is held to it: " .. tostring(stored))
+    hit:Click()
+    h.entry._text = "+12"
+    env.fire(h.entry, "OnEnterPressed")
+    ok(stored == 12, "a sign in front is read: " .. tostring(stored))
+
+    local cap = 0
+    local f = ui:CreateSlider(content, "Max Ready Icons", 0, 20, 1, function() return cap end, function(v) cap = v end,
+        nil, function(v) return v == 0 and "No limit" or tostring(v) end)
+    f:EnableTyping()
+    local fhit
+    for _, c in ipairs({ f:GetChildren() }) do
+        if c._type == "Button" and c ~= f.slider then fhit = c end
+    end
+    ok(f.value:GetText() == "No limit", "the readout shows the format")
+    fhit:Click()
+    ok(f.entry:GetText() == "0", "but the field holds the number itself: " .. f.entry:GetText())
+end)
+
+case("SetRange moves a slider's ends without saving the clamp", function()
+    local env, _, ui = setup()
+    local content = newContent(env)
+    local raw = env.CreateFrame("Slider")
+    raw:SetMinMaxValues(0, 100)
+    raw:SetValue(90)
+    local fired
+    raw:SetScript("OnValueChanged", function(_, v) fired = v end)
+    raw:SetMinMaxValues(0, 50)
+    ok(fired == 50, "the model clamps and fires on a narrower range, as the client does: " .. tostring(fired))
+
+    local stored, writes = 90, 0
+    local h = ui:CreateSlider(content, "Seconds", 0, 120, 10, function() return stored end,
+        function(v) stored, writes = v, writes + 1 end)
+    h:EnableTyping()
+    h.SetRange(0, 60)
+    local lo, hi = h.slider:GetMinMaxValues()
+    ok(lo == 0 and hi == 60 and writes == 0 and stored == 90,
+       "a narrower range saves nothing: " .. lo .. ".." .. hi .. " writes " .. writes .. " stored " .. stored)
+    ok(h.slider:GetValue() == 60 and h.value:GetText() == "60", "and shows the saved value held to the new end")
+    h.SetRange(0, 120)
+    ok(h.slider:GetValue() == 90 and h.value:GetText() == "90" and writes == 0, "a wider one shows the saved value again")
+
+    h.SetRange(5, 105)
+    local hit
+    for _, c in ipairs({ h:GetChildren() }) do
+        if c._type == "Button" and c ~= h.slider then hit = c end
+    end
+    hit:Click()
+    h.entry._text = "32"
+    env.fire(h.entry, "OnEnterPressed")
+    ok(stored == 35 and writes == 1, "a typed value snaps to the step from the new start: " .. tostring(stored))
+
+    local offset = 10
+    local o = ui:CreateSlider(content, "X Offset", 0, 100, 1, function() return offset end, function(v) offset = v end)
+    o.SetRange(-50, 50)
+    ok(o.value:GetText() == "+10", "a range reaching below zero signs a positive value: " .. o.value:GetText())
+
+    local cap = 0
+    local f = ui:CreateSlider(content, "Max Ready Icons", 0, 20, 1, function() return cap end, function(v) cap = v end,
+        nil, function(v) return v == 0 and "No limit" or tostring(v) end)
+    local wide = f.value._w
+    f.SetRange(1, 20)
+    ok(wide > 44 and f.value._w == 44 and f.value:GetText() == "1",
+       "a formatted readout is measured again for its new ends: " .. tostring(wide) .. " to " .. tostring(f.value._w))
+end)
+
+local function allEdges(frame, token, ui)
+    local n, right = 0, 0
+    for _, t in ipairs(layer(frame, "BORDER")) do
+        if t._euiOwner == frame then
+            n = n + 1
+            if sameColor(t._color, ui:Color(token)) then right = right + 1 end
+        end
+    end
+    return n == 4 and right == 4
+end
+
+-- Wraps a box so it behaves as the client's: ClearFocus fires OnEditFocusLost, and SetText fires
+-- OnTextChanged with userInput false.
+local function clientOrder(box)
+    local clear, set = box.ClearFocus, box.SetText
+    box.ClearFocus = function(b)
+        local had = b:HasFocus()
+        clear(b)
+        if had then b:_fire("OnEditFocusLost") end
+    end
+    box.SetText = function(b, s)
+        set(b, s)
+        b:_fire("OnTextChanged", false)
+    end
+end
+
+local function typingButton(h)
+    for _, c in ipairs({ h:GetChildren() }) do
+        if c._type == "Button" and c ~= h.slider then return c end
+    end
+end
+
+case("a text field's edges all turn with its focus, and its padding takes the mouse", function()
+    local env, _, ui = setup()
+    local content = newContent(env)
+    local h = ui:CreateTextField(content, "Name", function() return "" end, function() end)
+    ok(h.field:IsMouseEnabled(), "the padding takes the mouse with no tooltip at all")
+    h.box:SetFocus()
+    env.fire(h.box, "OnEditFocusGained")
+    ok(allEdges(h.field, "borderStrong", ui), "all four edges turn borderStrong")
+    h.box:ClearFocus()
+    env.fire(h.box, "OnEditFocusLost")
+    ok(allEdges(h.field, "inputBorder", ui), "and all four turn back")
+end)
+
+case("a press away from a focused field lets go of the keyboard, as retail does on its own", function()
+    local env, _, ui = setup()
+    local content = newContent(env)
+    local stored, calls = "Lane 1", 0
+    local h = ui:CreateTextField(content, "Frame Name", function() return stored end,
+        function(v) stored = v calls = calls + 1 end)
+    local box, field = h.box, h.field
+    ok(not box._events.GLOBAL_MOUSE_DOWN, "nothing listens while the field is idle")
+    box:SetFocus()
+    env.fire(box, "OnEditFocusGained")
+    ok(box._events.GLOBAL_MOUSE_DOWN, "with the keyboard it listens for a press anywhere")
+    box._text = "Lane 1 X"
+    field._mouseOver = true
+    env.fire(box, "OnEvent", "GLOBAL_MOUSE_DOWN")
+    ok(env.focus == box, "a press on the field itself keeps typing")
+    field._mouseOver = false
+    env.fire(box, "OnEvent", "GLOBAL_MOUSE_DOWN")
+    ok(env.focus == nil, "a press anywhere else lets go")
+    env.fire(box, "OnEditFocusLost")
+    ok(stored == "Lane 1 X" and calls == 1, "and commits, before that press can switch the form to another lane")
+    ok(not box._events.GLOBAL_MOUSE_DOWN, "then it stops listening")
+
+    local s = 3
+    local sh = ui:CreateSlider(content, "Width", 0, 10, 1, function() return s end, function(v) s = v end)
+    sh:EnableTyping()
+    typingButton(sh):Click()
+    env.fire(sh.entry, "OnEditFocusGained")
+    sh.entry._text = "9"
+    env.fire(sh.entry, "OnEvent", "GLOBAL_MOUSE_DOWN")
+    ok(env.focus == nil, "a slider's typed value lets go the same way")
+    env.fire(sh.entry, "OnEditFocusLost")
+    ok(s == 3 and not sh.entry:IsShown(), "leaving the value as it was")
+end)
+
+case("a client without the global press event builds the fields all the same", function()
+    local env, lib = setup()
+    env.unknownEvents.GLOBAL_MOUSE_DOWN = true
+    local ui = newCtx(env, lib)
+    local content = newContent(env)
+    local good = pcall(function()
+        local h = ui:CreateTextField(content, "Name", function() return "" end, function() end)
+        h.box:SetFocus()
+        env.fire(h.box, "OnEditFocusGained")
+        local sh = ui:CreateSlider(content, "Width", 0, 10, 1, function() return 1 end, function() end)
+        sh:EnableTyping()
+        typingButton(sh):Click()
+        env.fire(sh.entry, "OnEditFocusGained")
+    end)
+    ok(good, "nothing raises when the event is refused")
+end)
+
+case("in the client's order, Enter writes once and the field shows what the host stored", function()
+    local env, _, ui = setup()
+    local content = newContent(env)
+    local stored, calls = "", 0
+    local name = ui:CreateTextField(content, "Name", function() return stored end,
+        function(v)
+            calls = calls + 1
+            stored = v:gsub("^%s+", ""):gsub("%s+$", "")
+            if stored == "" then stored = "Fireball" end
+        end)
+    clientOrder(name.box)
+    name.box:SetFocus()
+    env.fire(name.box, "OnEditFocusGained")
+    name.box._text = "  Bob  "
+    env.fire(name.box, "OnEnterPressed")
+    ok(calls == 1 and stored == "Bob", "a setter that tidies the text is called once: " .. calls)
+    ok(name.box:GetText() == "Bob" and env.focus == nil, "and the field shows the tidied text")
+    name.box:SetFocus()
+    env.fire(name.box, "OnEditFocusGained")
+    name.box._text = ""
+    env.fire(name.box, "OnEnterPressed")
+    ok(name.box:GetText() == "Fireball", "a blank the host fills in shows what it filled in")
+
+    local id = 12345
+    local idField = ui:CreateTextField(content, "Trigger ID", function() return id end,
+        function(v) id = tonumber(v) end, nil, { numeric = true })
+    clientOrder(idField.box)
+    idField.box:SetFocus()
+    env.fire(idField.box, "OnEditFocusGained")
+    idField.box._text = "00678"
+    env.fire(idField.box, "OnEnterPressed")
+    ok(id == 678 and idField.box:GetText() == "678", "a number shows as stored, without its leading zeros")
+    idField.box:SetFocus()
+    env.fire(idField.box, "OnEditFocusGained")
+    idField.box._text = "999"
+    env.fire(idField.box, "OnEscapePressed")
+    ok(id == 678 and idField.box:GetText() == "678", "and Escape returns to that, writing nothing")
+
+    local live, lcalls = "[cd.time]", 0
+    local lf = ui:CreateTextField(content, "Label Text", function() return live end,
+        function(v) live = v lcalls = lcalls + 1 end, nil, { live = true })
+    clientOrder(lf.box)
+    lf.box:SetFocus()
+    env.fire(lf.box, "OnEditFocusGained")
+    env.fire(lf.box, "OnEscapePressed")
+    ok(lcalls == 0 and lf.box:GetText() == "[cd.time]", "Escape on a live field with nothing typed writes nothing")
+    local tidy = ui:CreateTextField(content, "Frame Name", function() return live end,
+        function(v) live = v:gsub("%s+$", "") end, nil, { live = true })
+    clientOrder(tidy.box)
+    tidy.box:SetFocus()
+    env.fire(tidy.box, "OnEditFocusGained")
+    tidy.box._text = "Lane 2   "
+    env.fire(tidy.box, "OnTextChanged", true)
+    tidy.box:ClearFocus()
+    ok(live == "Lane 2" and tidy.box:GetText() == "Lane 2", "a live field shows what was stored once it lets go")
+end)
+
+case("a text field's smaller contracts", function()
+    local env, _, ui = setup()
+    local content = newContent(env)
+    local stored = "A"
+    local h = ui:CreateTextField(content, "Name", function() return stored end, function() end)
+    stored = nil
+    h:Refresh()
+    ok(h.box:GetText() == "", "Refresh to nothing stored empties the field")
+    h:SetText(nil)
+    ok(h.box._text == "", "SetText with nothing gives the box an empty string, never nil")
+    local function where(fn)
+        local good, err = pcall(fn)
+        return not good and tostring(err):find("test_controls.lua", 1, true) ~= nil
+    end
+    ok(where(function() local r = ui:CreateTextField(content, "X", nil, function() end) return r end),
+       "a missing getter raises at the caller")
+    ok(where(function() local r = ui:CreateTextField(content, "X", function() end, function() end, nil, 7) return r end),
+       "opts that are not a table raise at the caller")
+end)
+
+case("the typed value's button and field trade places, and its tip opens where the row's does", function()
+    local env, _, ui = setup()
+    local content = newContent(env)
+    local stored = 2
+    local h = ui:CreateSlider(content, "Duration (sec)", 0, 10, 0.5, function() return stored end,
+        function(v) stored = v end, "How long the timer runs.")
+    ok(h:EnableTyping() == h and h:EnableTyping() == h, "EnableTyping hands the slider back every time")
+    local hit = typingButton(h)
+    env.fire(hit, "OnEnter")
+    ok(env.tooltip._owner == h and env.tooltip._lines[1] and env.tooltip._lines[1].text == "Duration (sec)",
+       "the number's tip is the row's, placed off the row")
+    env.fire(hit, "OnLeave")
+    ok(not env.tooltip:IsShown(), "and it goes when the mouse leaves")
+    hit:Click()
+    ok(not hit:IsShown(), "while the field is open the button is out of its way")
+    env.fire(h.entry, "OnEscapePressed")
+    ok(hit:IsShown() and h.value:IsShown(), "and after, the number can be clicked again")
+end)
+
+case("a typed value of not-a-number is turned away", function()
+    local realTonumber = tonumber
+    _G.tonumber = function(s, base)
+        if s == "nan" then return 0 / 0 end
+        return realTonumber(s, base)
+    end
+    local env, _, ui = setup()
+    _G.tonumber = realTonumber
+    local content = newContent(env)
+    local stored, calls = 2, 0
+    local h = ui:CreateSlider(content, "Width", 0, 10, 1, function() return stored end,
+        function(v) stored = v calls = calls + 1 end)
+    h:EnableTyping()
+    typingButton(h):Click()
+    h.entry._text = "nan"
+    env.fire(h.entry, "OnEnterPressed")
+    ok(calls == 0 and stored == 2 and h.value:GetText() == "2",
+       "on a client whose tonumber reads nan, nothing is written: " .. tostring(stored))
 end)
 
 print(("test_controls: %d passed, %d failed"):format(pass, fail))

@@ -264,6 +264,40 @@ case("a link to copy opens selected, so Ctrl+C takes it at once", function()
     ok(edit._highlight == false, "a plain prompt opens unselected")
 end)
 
+case("a read-only field can be copied but not typed over", function()
+    local env, _, ui = setup()
+    local got
+    ui:ShowDialog(confirm({ hasEditBox = true, readOnly = true, editBoxText = "https://example.org",
+                            onAccept = function(t) got = t end }))
+    local edit = ui._dialog.edit
+    ok(edit:GetText() == "https://example.org" and edit._highlight == true and env.focus == edit,
+       "it opens with the text selected and the keyboard, so Ctrl+C takes it at once")
+    edit._highlight = false
+    edit._text = "https://example.orgx"
+    edit:_fire("OnTextChanged", true)
+    ok(edit:GetText() == "https://example.org" and edit._highlight == true,
+       "a keystroke is undone and the text selected again")
+    edit._text = ""
+    edit:_fire("OnTextChanged", true)
+    ok(edit:GetText() == "https://example.org", "and so is a cut")
+    edit._highlight = false
+    edit._text = "set by code"
+    edit:_fire("OnTextChanged", false)
+    ok(edit:GetText() == "set by code" and edit._highlight == false, "text the code puts in is not undone")
+    edit._text = "https://example.org"
+    edit:_fire("OnEnterPressed")
+    ok(got == "https://example.org", "Enter closes it, handing the text on")
+
+    ui:ShowDialog(confirm({ hasEditBox = true, editBoxText = "Default" }))
+    edit._text = "Raid"
+    edit:_fire("OnTextChanged", true)
+    ok(edit:GetText() == "Raid" and edit._highlight == false, "the next prompt in the same dialog takes typing as usual")
+    ui:ShowDialog(confirm({ hasEditBox = true, readOnly = true }))
+    edit._text = "x"
+    edit:_fire("OnTextChanged", true)
+    ok(edit:GetText() == "", "a read-only field given no text stays empty")
+end)
+
 case("the field is drawn as an input in the client's own font", function()
     local env, _, ui = setup()
     ui:ShowDialog(confirm({ hasEditBox = true }))
@@ -465,6 +499,15 @@ case("ShowDialog checks what it is given, and the error names the caller", funct
     ok(not pcall(ui.ShowDialog, ui, confirm({ danger = "yes" })), "danger must be a boolean")
     ok(not pcall(ui.ShowDialog, ui, confirm({ dangerous = true })), "and a misspelling of it is refused")
     ok(pcall(ui.ShowDialog, ui, confirm({ danger = true })), "danger itself is accepted")
+    ok(not pcall(ui.ShowDialog, ui, confirm({ readOnly = "yes", hasEditBox = true })), "readOnly must be a boolean")
+    ok(pcall(ui.ShowDialog, ui, confirm({ readOnly = true, hasEditBox = true })), "readOnly with a field is accepted")
+    local bare, bareErr = pcall(function()
+        local r = ui:ShowDialog(confirm({ readOnly = true }))
+        return r
+    end)
+    ok(not bare and tostring(bareErr):find("needs hasEditBox", 1, true) ~= nil
+       and tostring(bareErr):find("test_dialog.lua", 1, true) ~= nil,
+       "readOnly with no field is refused, pointing at the caller: " .. tostring(bareErr))
     local good, err = pcall(function()
         local r = ui:ShowDialog({ title = "T", text = "X" })
         return r

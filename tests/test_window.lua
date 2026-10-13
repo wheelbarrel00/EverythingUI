@@ -707,5 +707,340 @@ case("the settings scroll range is floored to whole units", function()
     ok(not bar:IsShown(), "and less than a unit is no range at all")
 end)
 
+-- Cooldown Master's shape: a plain tab, two groups of pages, a plain tab. The pages' orders sort them
+-- ahead of every top-level tab, so nothing passes by an order tie.
+local function addGroups(ui)
+    local log = { header = 0 }
+    ui:RegisterTab({ id = "global", title = "Global", order = 5, icon = ui:Texture("icon-general"), build = function() end })
+    ui:RegisterTab({ id = "lanes", title = "Lanes", order = 6, icon = ui:Texture("icon-tracker"), group = true })
+    for i, c in ipairs({ { "lanes.general", "General" }, { "lanes.appearance", "Appearance" }, { "lanes.text", "Text" } }) do
+        ui:RegisterTab({ id = c[1], parent = "lanes", title = c[2], order = i, build = function() end,
+                         header = function(self, bar)
+                             log.header = log.header + 1
+                             log.bar, log.self = bar, self
+                         end })
+    end
+    ui:RegisterTab({ id = "ready", title = "Ready", order = 7, icon = ui:Texture("icon-appearance"), group = true })
+    for i, c in ipairs({ { "ready.general", "General" }, { "ready.text", "Text" } }) do
+        ui:RegisterTab({ id = c[1], parent = "ready", title = c[2], order = i, build = function() end })
+    end
+    ui:RegisterTab({ id = "about", title = "About", order = 9, icon = ui:Texture("icon-about"), build = function() end })
+    return log
+end
+
+local function hangs(nav, from, gap)
+    local p = nav._points[1] or {}
+    return #nav._points == 1 and p[1] == "TOPLEFT" and p[2] == from and p[3] == "BOTTOMLEFT" and p[5] == -gap
+end
+
+case("RegisterTab takes groups and pages, and refuses what does not fit them", function()
+    local _, _, ui = setup()
+    local function where(def)
+        local good, err = pcall(function()
+            local r = ui:RegisterTab(def)
+            return r
+        end)
+        return not good and tostring(err):find("test_window.lua", 1, true) ~= nil, tostring(err)
+    end
+    ok(pcall(ui.RegisterTab, ui, { id = "lanes", title = "Lanes", group = true }), "a group needs no build")
+    for _, key in ipairs({ "build", "refresh", "footer", "header", "preview" }) do
+        local refused, err = where({ id = "g" .. key, title = "G", group = true, [key] = function() end })
+        ok(refused and err:find("takes no " .. key, 1, true), "a group with a " .. key .. " is refused at the caller: " .. err)
+    end
+    local refused, err = where({ id = "gp", title = "G", group = true, parent = "lanes" })
+    ok(refused and err:find("takes no parent", 1, true), "a group inside a group is refused: " .. err)
+    refused, err = where({ id = "x", title = "X", build = function() end, parent = "nowhere" })
+    ok(refused and err:find("parent nowhere is not a group registered before it", 1, true),
+       "a page naming no group is refused at the caller: " .. err)
+    ui:RegisterTab({ id = "plain", title = "Plain", build = function() end })
+    refused, err = where({ id = "y", title = "Y", build = function() end, parent = "plain" })
+    ok(refused and err:find("parent plain", 1, true), "and so is one naming a tab that is not a group: " .. err)
+    refused, err = where({ id = "plain", title = "Again", build = function() end })
+    ok(refused and err:find("id plain twice", 1, true), "an id used twice is refused at the caller: " .. err)
+    refused, err = where({ id = "plain", title = "Again", group = true })
+    ok(refused and err:find("id plain twice", 1, true), "and so is a group taking a tab's id: " .. err)
+    refused, err = where({ id = "lanes", title = "Lanes", parent = "lanes", build = function() end })
+    ok(refused and err:find("id lanes twice", 1, true), "and a page taking its group's id: " .. err)
+    refused = where({ id = "z", title = "Z", group = "yes" })
+    ok(refused, "group must be a boolean")
+    refused = where({ id = "z", title = "Z", build = function() end, header = "strip" })
+    ok(refused, "header must be a function")
+    refused = where({ id = "z", title = "Z", group = false })
+    ok(refused, "a tab that is not a group still needs its build")
+end)
+
+case("a group with no pages in it is refused at the caller, before any window is made", function()
+    local _, _, ui = setup()
+    ui:RegisterTab({ id = "global", title = "Global", build = function() end })
+    ui:RegisterTab({ id = "lanes", title = "Lanes", group = true })
+    ui:RegisterTab({ id = "lanes.general", parent = "lanes", title = "General", build = function() end })
+    ui:RegisterTab({ id = "empty", title = "Empty", group = true })
+    local function refused(fn)
+        local good, err = pcall(fn)
+        err = tostring(err)
+        return not good and err:find("group empty has no tabs in it", 1, true) ~= nil
+               and err:find("test_window.lua", 1, true) ~= nil, err
+    end
+    local r, err = refused(function() local f = ui:BuildSettings() return f end)
+    ok(r, "built directly: " .. err)
+    ok(ui._window == nil, "and no window is left half built")
+    for i = 1, 2 do
+        r, err = refused(function() local f = ui:ToggleSettings() return f end)
+        ok(r, "opened with a toggle, try " .. i .. ", the same error: " .. err)
+    end
+end)
+
+case("pages with the same order, or none, keep the order they were registered in", function()
+    local names = { "defaults", "spells", "items", "trinkets", "potions", "pet", "buffs", "offensives", "utility", "custom" }
+    for _, shared in ipairs({ false, true }) do
+        local _, _, ui = setup()
+        ui:RegisterTab({ id = "global", title = "Global", order = 1, build = function() end })
+        ui:RegisterTab({ id = "filters", title = "Filters", order = 5, group = true })
+        for _, n in ipairs(names) do
+            ui:RegisterTab({ id = "filters." .. n, parent = "filters", title = n, order = shared and 5 or nil,
+                             build = function() end })
+        end
+        ui:RegisterTab({ id = "about", title = "About", order = 9, build = function() end })
+        ui:BuildSettings()
+        local got = {}
+        for i, k in ipairs(tab(ui, "filters")._kids) do got[i] = k.title end
+        ok(table.concat(got, ",") == table.concat(names, ","),
+           (shared and "sharing their group's order: " or "with no order: ") .. table.concat(got, ","))
+    end
+end)
+
+case("library controls work in a strip and a footer, and each page's copy follows the setting", function()
+    local _, _, ui = setup()
+    local inst, unlocked = 1, false
+    local seg, box = {}, {}
+    ui:RegisterTab({ id = "lanes", title = "Lanes", order = 1, group = true })
+    for i, p in ipairs({ "general", "appearance" }) do
+        ui:RegisterTab({ id = "lanes." .. p, parent = "lanes", title = p, order = i, build = function() end,
+            header = function(self, bar)
+                seg[p] = self:CreateRadioGroup(bar, nil, { { value = 1, label = "Lane 1" }, { value = 2, label = "Lane 2" },
+                    { value = 3, label = "Lane 3" } }, function() return inst end, function(v) inst = v end, 400)
+            end,
+            footer = function(self, bar)
+                box[p] = self:CreateCheckbox(bar, "Unlock Frames", function() return unlocked end,
+                                             function(v) unlocked = v end)
+            end })
+    end
+    ui:BuildSettings()
+    ui:SelectTab("lanes.appearance")
+    ok(seg.general and seg.appearance and box.general and box.appearance,
+       "a radio group in each strip and a checkbox in each footer")
+    seg.appearance.buttons[2]:Click()
+    box.appearance:Click()
+    ui:SelectTab("lanes.general")
+    local function lit(h) for i, b in ipairs(h.buttons) do if b.fill:IsShown() then return i end end end
+    ok(inst == 2 and lit(seg.general) == 2, "the other page's strip shows the lane picked on this one")
+    ok(unlocked and box.general:GetChecked(), "and its footer the box ticked on this one")
+end)
+
+case("groups draw as rows that open onto their pages, only the one holding the page open", function()
+    local _, _, ui, state = setup()
+    addGroups(ui)
+    local f = ui:BuildSettings()
+    local g, lanes, ready, about = tab(ui, "global")._nav, tab(ui, "lanes"), tab(ui, "ready"), tab(ui, "about")._nav
+    local lg, la, lt = tab(ui, "lanes.general")._nav, tab(ui, "lanes.appearance")._nav, tab(ui, "lanes.text")._nav
+    ok(ui._current == "global", "the first tab with no group is shown first")
+    ok(g._points[1][1] == "TOPLEFT" and g._points[1][2] == 8 and g._points[1][3] == -12, "it starts the sidebar")
+    ok(hangs(lanes._nav, g, 2) and hangs(ready._nav, lanes._nav, 2) and hangs(about, ready._nav, 2),
+       "closed, the groups stack like tabs with a 2 px gap")
+    ok(not lg:IsShown() and not la:IsShown() and not lanes._guide:IsShown(), "their pages and guide line are hidden")
+    ok(lanes._nav.chevron._file:find("chevron%-right$"), "a closed group points right")
+    ok(lanes._nav.label._textColor and sameColor(lanes._nav.label._textColor, ui:Color("navText")) and not lanes._nav.active:IsShown(),
+       "and reads like any other row")
+
+    lanes._nav:Click()
+    ok(ui._current == "lanes.general" and tab(ui, "lanes.general")._holder:IsShown(), "a click on a group opens its first page")
+    ok(f.section:GetText() == "Lanes / General" and state.lastTab == "lanes.general",
+       "the header names the group and the page, and the page is what is saved")
+    ok(lg:IsShown() and la:IsShown() and lt:IsShown(), "the group's pages show")
+    ok(hangs(lg, lanes._nav, 2) and hangs(la, lg, 0) and hangs(lt, la, 0) and hangs(ready._nav, lt, 2),
+       "under the group 2 px down, page against page, the next group 2 px under the last page")
+    ok(not tab(ui, "ready.general")._nav:IsShown(), "another group stays shut")
+    ok(lanes._nav.chevron._file:find("chevron%-down$") and ready._nav.chevron._file:find("chevron%-right$"),
+       "the open group's chevron points down")
+    local gl = lanes._guide
+    local gp = gl._points[1] or {}
+    ok(gl:IsShown() and gp[1] == "TOPLEFT" and gp[2] == lg and gp[3] == "TOPLEFT" and gp[4] == 19 and gp[5] == -4
+       and gl._h == 3 * 28 - 8 and gl._w and gl._w > 0 and gl._w < 2 and sameColor(gl._color, ui:Color("inputBorder")),
+       "a guide line under the group's icon, from 4 below the first page to 4 above the last")
+    ok(sameColor(lanes._nav.label._textColor, ui:Color("text")) and not lanes._nav.active:IsShown()
+       and sameColor(lanes._nav.icon._vertex, ui:Color("accentHi")) and lanes._nav.label._font[1]:find("Medium", 1, true),
+       "the group holding the page reads in the text color with its icon lit, and no fill and no SemiBold")
+    ok(lg.active:IsShown() and not la.active:IsShown() and not g.active:IsShown()
+       and lg.label._font[1]:find("SemiBold", 1, true) and la.label._font[1]:find("Medium", 1, true),
+       "the page's own row carries the fill and the SemiBold")
+
+    la:Click()
+    ok(ui._current == "lanes.appearance" and f.section:GetText() == "Lanes / Appearance", "a page row opens its page")
+    ready._nav:Click()
+    ok(ui._current == "ready.general" and not lg:IsShown() and tab(ui, "ready.text")._nav:IsShown(),
+       "opening another group shuts the first")
+    ok(ready._guide:IsShown() and ready._guide._h == 2 * 28 - 8, "a two-page group's guide spans its two pages")
+    ok(sameColor(lanes._nav.label._textColor, ui:Color("navText")), "and the first goes back to a plain row")
+    lanes._nav:Click()
+    ok(ui._current == "lanes.appearance", "a group opens again on the page last shown in it")
+    tab(ui, "global")._nav:Click()
+    ok(not lg:IsShown() and not lanes._guide:IsShown() and hangs(ready._nav, lanes._nav, 2),
+       "a tab outside every group shuts them all")
+end)
+
+case("a click on the open group shuts it with its page left on screen, and a second opens it again", function()
+    local _, _, ui = setup()
+    addGroups(ui)
+    local f = ui:BuildSettings()
+    local lanes, ready = tab(ui, "lanes"), tab(ui, "ready")
+    local lg, la, lt = tab(ui, "lanes.general")._nav, tab(ui, "lanes.appearance")._nav, tab(ui, "lanes.text")._nav
+    la:Click()
+    lanes._nav:Click()
+    ok(ui._current == "lanes.appearance" and tab(ui, "lanes.appearance")._holder:IsShown()
+       and f.section:GetText() == "Lanes / Appearance", "the page stays on screen")
+    ok(not lg:IsShown() and not la:IsShown() and not lt:IsShown() and not lanes._guide:IsShown(),
+       "its pages and guide line hide")
+    ok(lanes._nav.chevron._file:find("chevron%-right$"), "its chevron points right")
+    ok(hangs(ready._nav, lanes._nav, 2), "the next group moves up under it")
+    ok(sameColor(lanes._nav.label._textColor, ui:Color("text")) and sameColor(lanes._nav.icon._vertex, ui:Color("accentHi")),
+       "shut, it still reads as the group holding the page")
+    lanes._nav:Click()
+    ok(ui._current == "lanes.appearance" and lg:IsShown() and la:IsShown() and la.active:IsShown()
+       and lanes._nav.chevron._file:find("chevron%-down$") and hangs(ready._nav, lt, 2),
+       "a second click opens it again on the same page")
+    lanes._nav:Click()
+    ui:SelectTab("lanes.appearance")
+    ok(not lg:IsShown(), "the same page shown again, as a strip pick or a footer box does, leaves it shut")
+    ui:SelectTab("lanes.text")
+    ok(lg:IsShown() and ui._current == "lanes.text", "going to another of its pages opens it")
+    lanes._nav:Click()
+    ready._nav:Click()
+    ok(ui._current == "ready.general" and tab(ui, "ready.general")._nav:IsShown() and not lg:IsShown(),
+       "another group still opens on its page")
+    lanes._nav:Click()
+    ok(ui._current == "lanes.text" and lg:IsShown(), "and the shut group opens again, on its last page, when it is picked")
+end)
+
+case("ScrollIntoView brings a frame on a settings page into view a frame later, held to the page's range", function()
+    local env, _, ui = setup()
+    ui:RegisterTab({ id = "a", title = "A", build = function() end })
+    ui:BuildSettings()
+    local t = tab(ui, "a")
+    local content, sf = t._content, t._scroll
+    local bar
+    for _, c in ipairs({ t._holder:GetChildren() }) do if c._type == "Slider" then bar = c end end
+    local inner = env.CreateFrame("Frame", nil, env.CreateFrame("Frame", nil, content))
+    content._top, inner._top = 1000, 640
+    sf._vrange = 0
+    bar:SetMinMaxValues(0, 800)
+    -- The client works the range out again only when asked, which is what UpdateScrollChildRect does
+    sf.UpdateScrollChildRect = function(self) self._vrange = 500 end
+    ui:ScrollIntoView(inner)
+    ok(bar:GetValue() == 0, "nothing moves before the page is measured")
+    env.runTimers()
+    ok(bar:GetValue() == 360 and sf:GetVerticalScroll() == 360, "a frame two deep comes to the top of the view")
+    inner._top = 100
+    ui:ScrollIntoView(inner)
+    env.runTimers()
+    ok(bar:GetValue() == 500, "one past the page's end scrolls as far as the page goes, not the bar's stale end")
+    inner._top = 1100
+    ui:ScrollIntoView(inner)
+    env.runTimers()
+    ok(bar:GetValue() == 0, "and one above the top no further than the top")
+    inner._top = nil
+    ui:ScrollIntoView(inner)
+    ok(pcall(env.runTimers) and bar:GetValue() == 0, "a frame not laid out yet is left where it is")
+    local loose = env.CreateFrame("Frame", nil, env.UIParent)
+    ok(pcall(ui.ScrollIntoView, ui, loose) and bar:GetValue() == 0, "a frame on no settings page is left alone")
+end)
+
+case("a page's row is one line, lined up with its group's label, and draws no icon", function()
+    local _, _, ui = setup()
+    ui:RegisterTab({ id = "lanes", title = "Lanes", icon = ui:Texture("icon-tracker"), group = true })
+    ui:RegisterTab({ id = "lanes.general", parent = "lanes", title = "General", icon = ui:Texture("icon-general"),
+                     build = function() end })
+    ui:BuildSettings()
+    local nav = tab(ui, "lanes.general")._nav
+    local lp = nav.label._points[1] or {}
+    ok(nav._h == 28 and nav.icon == nil, "28 tall with no icon, even when one is passed")
+    ok(lp[1] == "LEFT" and lp[2] == 38 and nav.label._wrap == false, "its text 38 in, on one line")
+    local rp = nav.label._points[2] or {}
+    ok(rp[1] == "RIGHT" and rp[2] == -12 and rp[3] == 0, "and 12 short of the row's right end")
+    local ch = tab(ui, "lanes")._nav.chevron
+    local cp = ch._points[1] or {}
+    ok(#ch._points == 1 and cp[1] == "RIGHT" and cp[2] == -12 and cp[3] == 0 and ch._w == 12 and ch._h == 12
+       and sameColor(ch._vertex, ui:Color("muted")), "a group's 12 px chevron sits 12 in from the right, muted")
+    local right
+    for _, p in ipairs(tab(ui, "lanes")._nav.label._points) do if p[1] == "RIGHT" then right = p end end
+    ok(right and right[2] == ch and right[3] == "LEFT" and right[4] == -10 and right[5] == 0,
+       "a group's label stops 10 short of its chevron")
+end)
+
+case("the saved page comes back with its group open, and a saved group opens its first page", function()
+    for _, c in ipairs({ { "lanes.text", "lanes.text" }, { "ready", "ready.general" }, { "gone", "global" } }) do
+        local _, _, ui, state = setup({ lastTab = c[1] })
+        addGroups(ui)
+        ui:BuildSettings()
+        ok(ui._current == c[2] and state.lastTab == c[2], "saved " .. c[1] .. " opens " .. c[2])
+    end
+    local _, _, ui = setup({ lastTab = "lanes.text" })
+    addGroups(ui)
+    ui:BuildSettings()
+    ok(tab(ui, "lanes.text")._nav:IsShown(), "with its group open")
+    local _, _, lead = setup()
+    lead:RegisterTab({ id = "lanes", title = "Lanes", order = 1, group = true })
+    lead:RegisterTab({ id = "lanes.a", parent = "lanes", title = "A", order = 1, build = function() end })
+    lead:RegisterTab({ id = "about", title = "About", order = 9, build = function() end })
+    lead:BuildSettings()
+    ok(lead._current == "lanes.a", "with nothing saved and a group first, that group's first page opens")
+end)
+
+case("a page's header is a pinned strip above its scrolling column", function()
+    local env, _, ui = setup()
+    local log = addGroups(ui)
+    ui:BuildSettings()
+    local t = tab(ui, "lanes.general")
+    local hb = t._header
+    ok(hb and hb._parent == t._holder and hb._h == 52, "a 52 px strip in the page's holder")
+    local p1, p2 = hb._points[1] or {}, hb._points[2] or {}
+    ok(p1[1] == "TOPLEFT" and p1[2] == nil and p2[1] == "TOPRIGHT" and p2[2] == 0, "across the top of the page")
+    local bottom = 0
+    for _, r in ipairs({ hb:GetRegions() }) do
+        if r._layer == "BORDER" and sameColor(r._color, ui:Color("divider")) and r._points[1][1] == "BOTTOMLEFT"
+                and r._points[2][1] == "BOTTOMRIGHT" then
+            bottom = bottom + 1
+        end
+    end
+    ok(bottom == 1, "with a divider under it")
+    local sp = t._scroll._points[1] or {}
+    ok(sp[1] == "TOPLEFT" and sp[2] == 24 and sp[3] == -(20 + 52), "the column starts under it")
+    local bar
+    for _, c in ipairs({ t._holder:GetChildren() }) do if c._type == "Slider" then bar = c end end
+    ok(bar and bar._points[1][1] == "TOPRIGHT" and bar._points[1][3] == -(20 + 52), "and so does its scroll bar")
+    local gp = tab(ui, "global")._scroll._points[1]
+    ok(gp[3] == -20 and tab(ui, "global")._header == nil, "a tab with no header keeps its column where it was")
+
+    ok(log.header == 0, "the strip is filled when its page is first shown, not before")
+    local refits = 0
+    ui:SelectTab("lanes.general")
+    ok(log.header == 1 and log.bar == hb and log.self == ui and hb:IsShown(), "header gets the context and the strip, shown")
+    hb._euiFit = { { Fit = function() refits = refits + 1 end } }
+    ui:SelectTab("global")
+    ui:SelectTab("lanes.general")
+    ok(log.header == 1, "once")
+    env.runTimers()
+    ok(refits >= 1, "and sized again on screen, as a footer is")
+    ui:SelectTab("lanes.appearance")
+    ok(log.header == 2, "each page fills a strip of its own")
+end)
+
+case("a header beside a preview stops at the panel", function()
+    local _, _, ui = setup()
+    ui:RegisterTab({ id = "a", title = "A", build = function() end, header = function() end, preview = function() end })
+    ui:BuildSettings()
+    local p2 = tab(ui, "a")._header._points[2]
+    ok(p2[1] == "TOPRIGHT" and p2[2] == -320, "its right end is the panel's left")
+end)
+
 print(("test_window: %d passed, %d failed"):format(pass, fail))
 if fail > 0 then os.exit(1) end
