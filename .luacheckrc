@@ -20,6 +20,7 @@ read_globals = {
     "GetCursorPosition",
     "issecretvalue",
     "IsShiftKeyDown",
+    "IsModifierKeyDown",
     "IsMouseButtonDown",
     "SetCursor",
     "BackdropTemplateMixin",

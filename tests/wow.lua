@@ -373,6 +373,9 @@ function M.newEnv(opts)
     env.cursorX, env.cursorY = 0, 0
     function env.GetCursorPosition() return env.cursorX, env.cursorY end
     function env.IsShiftKeyDown() return env.shift == true end
+    function env.IsModifierKeyDown() return env.shift == true or env.ctrl == true or env.alt == true end
+    function env.IsControlKeyDown() return env.ctrl == true end
+    function env.IsAltKeyDown() return env.alt == true end
     function env.IsMouseButtonDown(button) return env.mouseDown == button end
     function env.SetCursor(c) env.cursor = c end
     function env.geterrorhandler()

@@ -574,6 +574,82 @@ case("the slim scroll bar", function()
     ok(bar:GetThumbTexture()._h == 24, "the thumb never shrinks below 24")
 end)
 
+-- The bar is 392 long with its top at 1000, and a 300 range in a 400 view makes the thumb 224 long, so it travels 168.
+case("the bar moves its own thumb", function()
+    local env, _, ui = setup()
+    addTabs(ui)
+    local f = ui:BuildSettings()
+    local t = tab(ui, "general")
+    local sf = t._scroll
+    local bar
+    for _, c in ipairs({ t._holder:GetChildren() }) do if c._type == "Slider" then bar = c end end
+    local grip = bar._euiGrip
+    ok(not bar:IsMouseEnabled() and grip and grip:IsMouseEnabled(), "the bar takes no mouse, and the grip over it does")
+    ok(grip._points[1][2] == bar and grip._points[2][1] == "BOTTOMRIGHT", "the grip covers the bar")
+    sf._h, bar._h, bar._top = 400, 392, 1000
+    sf:_fire("OnScrollRangeChanged", 0, 300)
+    local function press(along, button)
+        env.cursorY = 1000 - along
+        env.mouseDown = "LeftButton"
+        grip:_fire("OnMouseDown", button or "LeftButton")
+    end
+    local function move(along)
+        env.cursorY = 1000 - along
+        grip:_fire("OnUpdate", 0.016)
+    end
+    press(180)
+    ok(bar:GetValue() == 0, "a press on the thumb leaves it where it is")
+    move(264)
+    ok(near(bar:GetValue(), 150) and near(sf:GetVerticalScroll(), 150), "dragged down half its travel, it scrolls half way")
+    move(800)
+    ok(bar:GetValue() == 300, "dragged past the end, it stops at the end")
+    move(-200)
+    ok(bar:GetValue() == 0, "dragged past the start, at the start")
+    grip:_fire("OnMouseUp", "LeftButton")
+    move(264)
+    ok(bar:GetValue() == 0 and not grip:GetScript("OnUpdate"), "let go, it no longer follows")
+    bar:SetValue(300)
+    press(200)
+    ok(bar:GetValue() == 300, "a press on a thumb at the far end leaves it there too")
+    move(116)
+    ok(near(bar:GetValue(), 150), "and dragging it up scrolls back up")
+    grip:_fire("OnMouseUp", "LeftButton")
+    bar:SetValue(0)
+    press(250)
+    ok(near(bar:GetValue(), (250 - 112) / 168 * 300), "a press on the track puts the thumb's middle under the cursor")
+    move(230)
+    ok(near(bar:GetValue(), (230 - 112) / 168 * 300), "and the thumb follows from there")
+    env.mouseDown = nil
+    move(300)
+    ok(near(bar:GetValue(), (230 - 112) / 168 * 300) and not grip:GetScript("OnUpdate"),
+       "a button let go off the grip ends the drag")
+    press(180, "RightButton")
+    ok(not grip:GetScript("OnUpdate"), "the right button does nothing")
+    bar:SetValue(0)
+    f:SetScale(0.5)
+    env.mouseDown = "LeftButton"
+    env.cursorY = (1000 - 180) * 0.5
+    grip:_fire("OnMouseDown", "LeftButton")
+    env.cursorY = (1000 - 264) * 0.5
+    grip:_fire("OnUpdate", 0.016)
+    ok(near(bar:GetValue(), 150), "in a scaled window the cursor is read in the bar's own units")
+    sf:_fire("OnScrollRangeChanged", 0, 0)
+    move(300)
+    ok(bar:GetValue() == 0, "a range gone mid-drag leaves the value alone")
+    grip:_fire("OnMouseUp", "LeftButton")
+    f:SetScale(1)
+    press(180)
+    ok(bar:GetValue() == 0 and not grip:GetScript("OnUpdate"), "with nothing to scroll a press does nothing")
+    sf:_fire("OnScrollRangeChanged", 0, 300)
+    bar._top = nil
+    press(180)
+    ok(not grip:GetScript("OnUpdate"), "a bar not laid out yet takes no press")
+    bar._top = 1000
+    press(180)
+    grip:_fire("OnHide")
+    ok(not grip:GetScript("OnUpdate"), "the grip hiding ends a drag")
+end)
+
 case("a tab with a preview gives the panel its right side", function()
     local _, _, ui = setup()
     addTabs(ui)

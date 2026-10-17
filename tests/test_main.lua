@@ -352,6 +352,38 @@ case("a scroll area shows a bar only for a direction it can scroll", function()
     ok(a.vbar:GetThumbTexture()._h == 24, "a long range keeps a thumb big enough to grab")
 end)
 
+-- The upright bar is 480 long and its thumb 300, so it travels 180. The sideways bar is 780 long.
+case("a scroll area's bars move their own thumbs, both ways", function()
+    local env, _, ui = setup()
+    local a = scrolled(ui, env, nil, 900, 300)
+    local vg, hg = a.vbar._euiGrip, a.hbar._euiGrip
+    ok(not a.vbar:IsMouseEnabled() and not a.hbar:IsMouseEnabled() and vg:IsMouseEnabled() and hg:IsMouseEnabled(),
+       "each bar's grip takes the mouse, the bar none")
+    a.vbar._top, a.hbar._left = 600, 100
+    env.mouseDown = "LeftButton"
+    env.cursorY = 600 - 250
+    vg:_fire("OnMouseDown", "LeftButton")
+    ok(a.vbar:GetValue() == 0, "a press on the upright thumb leaves it where it is")
+    env.cursorY = 600 - 340
+    vg:_fire("OnUpdate", 0.016)
+    ok(near(a.vbar:GetValue(), 150) and near(a.scroll:GetVerticalScroll(), 150), "dragged down, it scrolls down")
+    vg:_fire("OnMouseUp", "LeftButton")
+    local thumb = a.hbar:GetThumbTexture()._w
+    local room = 780 - thumb
+    env.cursorX = 100 + 300
+    hg:_fire("OnMouseDown", "LeftButton")
+    ok(a.hbar:GetValue() == 0, "a press on the sideways thumb leaves it where it is")
+    env.cursorX = 100 + 300 + room / 2
+    hg:_fire("OnUpdate", 0.016)
+    ok(near(a.hbar:GetValue(), 450) and near(a.scroll:GetHorizontalScroll(), 450), "dragged right, it scrolls right")
+    hg:_fire("OnMouseUp", "LeftButton")
+    a.hbar:SetValue(0)
+    env.cursorX = 100 + 500
+    hg:_fire("OnMouseDown", "LeftButton")
+    ok(near(a.hbar:GetValue(), (500 - thumb / 2) / room * 900), "a press on the sideways track puts the thumb under the cursor")
+    hg:_fire("OnMouseUp", "LeftButton")
+end)
+
 case("in a resizable window's corner, both bars end short of the grip", function()
     local _, _, ui = setup()
     local f = ui:CreateWindow(fullSpec({ w = 900, h = 600 }))
@@ -506,11 +538,18 @@ case("a press away from a focused search field lets go of the keyboard, as retai
     env.fire(box, "OnEditFocusGained")
     ok(box._events.GLOBAL_MOUSE_DOWN, "with the keyboard it listens for a press anywhere")
     s._mouseOver = true
-    env.fire(box, "OnEvent", "GLOBAL_MOUSE_DOWN")
+    env.fire(box, "OnEvent", "GLOBAL_MOUSE_DOWN", "LeftButton")
     ok(env.focus == box, "a press on the field, its magnifier included, keeps typing")
     s._mouseOver = false
-    env.fire(box, "OnEvent", "GLOBAL_MOUSE_DOWN")
-    ok(env.focus == nil, "a press anywhere else lets go")
+    env.fire(box, "OnEvent", "GLOBAL_MOUSE_DOWN", "RightButton")
+    env.fire(box, "OnEvent", "GLOBAL_MOUSE_DOWN", "MiddleButton")
+    ok(env.focus == box, "a right or middle press elsewhere keeps typing, as the game's own boxes do")
+    env.alt = true
+    env.fire(box, "OnEvent", "GLOBAL_MOUSE_DOWN", "LeftButton")
+    env.alt = false
+    ok(env.focus == box, "so does a left press with a modifier held")
+    env.fire(box, "OnEvent", "GLOBAL_MOUSE_DOWN", "LeftButton")
+    ok(env.focus == nil, "a plain left press anywhere else lets go")
     env.fire(box, "OnEditFocusLost")
     ok(not box._events.GLOBAL_MOUSE_DOWN, "then it stops listening")
     ok(s.hint:IsShown(), "and the hint's own focus paint still runs")

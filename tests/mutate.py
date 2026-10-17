@@ -76,6 +76,29 @@ MUTANTS = [
     ('Kit.lua', 'local WHEEL_STEP = 48', 'local WHEEL_STEP = 40', 'wheel step'),
     ('Kit.lua', '    bar:SetScript("OnValueChanged", function(_, v) sf:SetVerticalScroll(v) end)\n', '', 'bar never scrolls'),
 
+    # A bar moves its own thumb (MINOR 48)
+    ('Kit.lua', '    bar:EnableMouse(false)\n    local grip', '    bar:EnableMouse(true)\n    local grip', 'the bar still takes the press'),
+    ('Kit.lua', '    grip:EnableMouse(true)\n', '', 'the grip takes no mouse'),
+    ('Kit.lua', '    grip:SetAllPoints(bar)\n', '', 'the grip covers nothing'),
+    ('Kit.lua', '        if pos >= at and pos <= at + size then', '        if false then', 'a press on the thumb moves it'),
+    ('Kit.lua', '            hold = pos - at\n', '            hold = 0\n', 'the hold on the thumb forgotten'),
+    ('Kit.lua', '            hold = size / 2\n', '            hold = 0\n', "a track press puts the thumb's top under the cursor"),
+    ('Kit.lua', '            hold = size / 2\n            follow()\n', '            hold = size / 2\n', 'a track press waits for a move'),
+    ('Kit.lua', '        if vertical then return edge() - y / scale end', '        if vertical then return y / scale - edge() end', 'the upright bar runs backwards'),
+    ('Kit.lua', '        return x / scale - edge()', '        return edge() - x / scale', 'the sideways bar runs backwards'),
+    ('Kit.lua', '        local scale = bar:GetEffectiveScale()\n', '        local scale = 1\n', "the window's scale ignored"),
+    ('Kit.lua', '        if vertical then return bar:GetHeight() - thumb:GetHeight() end', '        if vertical then return bar:GetHeight() end', "the thumb's length left out of its travel"),
+    ('Kit.lua', '        if button ~= "LeftButton" or not edge() then return end', '        if not edge() then return end', 'any button drags'),
+    ('Kit.lua', '        if button ~= "LeftButton" or not edge() then return end', '        if button ~= "LeftButton" then return end', 'a press before the bar is laid out'),
+    ('Kit.lua', '        if hi <= lo or room <= 0 then return end', '        if false then return end', 'a press with nothing to scroll'),
+    ('Kit.lua', '        if hi > lo and room > 0 and edge() then bar:SetValue', '        if true then bar:SetValue', 'a drag after the range is gone'),
+    ('Kit.lua', '            if not IsMouseButtonDown("LeftButton") then return stop() end\n', '', 'a button let go elsewhere keeps dragging'),
+    ('Kit.lua', '    grip:SetScript("OnMouseUp", stop)\n', '', 'letting go keeps dragging'),
+    ('Kit.lua', '    grip:SetScript("OnHide", stop)\n', '', 'hiding keeps dragging'),
+    ('Kit.lua', '    kit.DragThumb(bar, thumb, true)\n', '', "settings bars keep the client's press"),
+    ('MainWindow.lua', '    kit.DragThumb(bar, thumb, orientation == "VERTICAL")\n', '', "scroll area bars keep the client's press"),
+    ('MainWindow.lua', 'kit.DragThumb(bar, thumb, orientation == "VERTICAL")', 'kit.DragThumb(bar, thumb, true)', 'the sideways bar drags as an upright one'),
+
     # The window
     ('Window.lua', '    f:SetClampedToScreen(true)\n', '', 'not clamped'),
     ('Window.lua', '    f:SetFrameStrata("DIALOG")', '    f:SetFrameStrata("HIGH")', 'wrong strata'),
@@ -1122,8 +1145,13 @@ MUTANTS = [
     # Committing before or after Enter lets go of the keyboard has no mutant: it is EQUIVALENT, since a
     # commit shows the stored text itself, and in the client ClearFocus runs the same commit through focus loss.
     ('Controls.lua', '    if not pcall(box.RegisterEvent, box, "GLOBAL_MOUSE_DOWN") then return end\n', '    pcall(box.RegisterEvent, box, "GLOBAL_MOUSE_DOWN")\n', 'a client without the event raises on a field'),
-    ('Controls.lua', '        if not area:IsMouseOver() then b:ClearFocus() end', '        b:ClearFocus()', 'a press on the field itself lets go'),
-    ('Controls.lua', '        if not area:IsMouseOver() then b:ClearFocus() end', '        if false then b:ClearFocus() end', 'a press away keeps the keyboard'),
+    ('Controls.lua', '        if button == "LeftButton" and not IsModifierKeyDown() and not area:IsMouseOver() then b:ClearFocus() end', '        b:ClearFocus()', 'a press on the field itself lets go'),
+    ('Controls.lua', '        if button == "LeftButton" and not IsModifierKeyDown() and not area:IsMouseOver() then b:ClearFocus() end', '        if false then b:ClearFocus() end', 'a press away keeps the keyboard'),
+    # MINOR 47: only a plain left press lets go, as Mainline's ClearCurrentKeyboardFocus does.
+    ('Controls.lua', 'if button == "LeftButton" and not IsModifierKeyDown() and not area:IsMouseOver()', 'if not IsModifierKeyDown() and not area:IsMouseOver()', 'a right or middle press away lets go'),
+    ('Controls.lua', 'if button == "LeftButton" and not IsModifierKeyDown() and not area:IsMouseOver()', 'if button == "LeftButton" and not area:IsMouseOver()', 'a modified press away lets go'),
+    ('Controls.lua', 'if button == "LeftButton" and not IsModifierKeyDown() and not area:IsMouseOver()', 'if button == "LeftButton" and not IsShiftKeyDown() and not area:IsMouseOver()', 'only Shift keeps the keyboard'),
+    ('Controls.lua', '    box:SetScript("OnEvent", function(b, _, button)', '    box:SetScript("OnEvent", function(b, button)', 'the press read from the event name'),
     ('Controls.lua', '    box:HookScript("OnEditFocusGained", function(b) b:RegisterEvent("GLOBAL_MOUSE_DOWN") end)\n', '', 'a focused field never listens for a press'),
     ('Controls.lua', '    box:HookScript("OnEditFocusLost", function(b) b:UnregisterEvent("GLOBAL_MOUSE_DOWN") end)\n', '', 'an idle field keeps listening'),
     ('Controls.lua', '    box:UnregisterEvent("GLOBAL_MOUSE_DOWN")\n    box:SetScript("OnEvent"', '    box:SetScript("OnEvent"', 'a field listens from the start'),

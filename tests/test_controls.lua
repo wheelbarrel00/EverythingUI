@@ -1584,11 +1584,22 @@ case("a press away from a focused field lets go of the keyboard, as retail does 
     ok(box._events.GLOBAL_MOUSE_DOWN, "with the keyboard it listens for a press anywhere")
     box._text = "Lane 1 X"
     field._mouseOver = true
-    env.fire(box, "OnEvent", "GLOBAL_MOUSE_DOWN")
+    env.fire(box, "OnEvent", "GLOBAL_MOUSE_DOWN", "LeftButton")
     ok(env.focus == box, "a press on the field itself keeps typing")
     field._mouseOver = false
-    env.fire(box, "OnEvent", "GLOBAL_MOUSE_DOWN")
-    ok(env.focus == nil, "a press anywhere else lets go")
+    env.fire(box, "OnEvent", "GLOBAL_MOUSE_DOWN", "RightButton")
+    env.fire(box, "OnEvent", "GLOBAL_MOUSE_DOWN", "MiddleButton")
+    ok(env.focus == box, "a right or middle press elsewhere keeps typing, as the game's own boxes do")
+    env.shift = true
+    env.fire(box, "OnEvent", "GLOBAL_MOUSE_DOWN", "LeftButton")
+    env.shift = false
+    ok(env.focus == box, "so does a left press with Shift held")
+    env.ctrl = true
+    env.fire(box, "OnEvent", "GLOBAL_MOUSE_DOWN", "LeftButton")
+    env.ctrl = false
+    ok(env.focus == box, "or with Ctrl held")
+    env.fire(box, "OnEvent", "GLOBAL_MOUSE_DOWN", "LeftButton")
+    ok(env.focus == nil, "a plain left press anywhere else lets go")
     env.fire(box, "OnEditFocusLost")
     ok(stored == "Lane 1 X" and calls == 1, "and commits, before that press can switch the form to another lane")
     ok(not box._events.GLOBAL_MOUSE_DOWN, "then it stops listening")
@@ -1599,8 +1610,10 @@ case("a press away from a focused field lets go of the keyboard, as retail does 
     typingButton(sh):Click()
     env.fire(sh.entry, "OnEditFocusGained")
     sh.entry._text = "9"
-    env.fire(sh.entry, "OnEvent", "GLOBAL_MOUSE_DOWN")
-    ok(env.focus == nil, "a slider's typed value lets go the same way")
+    env.fire(sh.entry, "OnEvent", "GLOBAL_MOUSE_DOWN", "RightButton")
+    ok(env.focus == sh.entry, "a slider's typed value keeps the keyboard through a right press")
+    env.fire(sh.entry, "OnEvent", "GLOBAL_MOUSE_DOWN", "LeftButton")
+    ok(env.focus == nil, "and lets go the same way on a plain left press")
     env.fire(sh.entry, "OnEditFocusLost")
     ok(s == 3 and not sh.entry:IsShown(), "leaving the value as it was")
 end)
