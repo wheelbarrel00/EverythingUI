@@ -414,6 +414,133 @@ case("an owner whose visibility is a secret value is left alone", function()
     ok(not m:IsShown(), "and once the answer is a plain value, a hidden owner closes it as usual")
 end)
 
+-- MINOR 46, for EQ Objective Tracker's filter button: a check item ticks in place and leaves the menu
+-- open, so several filters can be set in one visit.
+local function filterMenu(log)
+    log = log or {}
+    return {
+        { kind = "title", text = "Filters" },
+        { kind = "check", text = "Daily", checked = true, onClick = function(on) log[#log + 1] = "daily:" .. tostring(on) end },
+        { kind = "check", text = "Weekly", checked = false, onClick = function(on) log[#log + 1] = "weekly:" .. tostring(on) end },
+        { kind = "divider" },
+        { text = "Reset filters", onClick = function() log[#log + 1] = "reset" end },
+    }
+end
+
+local function boxColors(ui, b)
+    local fill = b.box.fill._color
+    local edges = 0
+    for _, line in ipairs(b.box.edges) do
+        if sameColor(line._color, ui:Color("accent")) then edges = edges + 1 end
+    end
+    return fill, edges
+end
+
+case("a check row draws a box, ticked or not, with its text past it", function()
+    local _, lib, ui = setup()
+    ui:ShowMenu(filterMenu())
+    local r = lib.shared.menu.rows
+    local daily, weekly = r[2], r[3]
+    ok(daily.box and daily.box:IsShown() and weekly.box and weekly.box:IsShown(), "both check rows show a box")
+    ok(daily.box._w == 16 and daily.box._h == 16, "the settings checkbox's 16 px: " .. tostring(daily.box._w))
+    ok(point(daily.box, "LEFT")[1] == "LEFT" and point(daily.box, "LEFT")[2] == 12, "12 in from the row's left, as text sits")
+    local fill, edges = boxColors(ui, daily)
+    ok(sameColor(fill, ui:Color("accent")) and edges == 4, "ticked, the fill and all four edges are accent")
+    ok(daily.box.mark:IsShown() and daily.box.mark._file == ui:Texture("check")
+       and sameColor(daily.box.mark._vertex, ui:Color("accentText")), "and the check mark shows, in accentText")
+    ok(daily.box.mark._w == 16, "the mark fills the box")
+    ok(point(daily.box.mark, "CENTER")[1] == "CENTER", "centered in it")
+    fill, edges = boxColors(ui, weekly)
+    ok(sameColor(fill, ui:Color("input")) and edges == 0, "unticked, the fill is input and no edge is accent")
+    for _, line in ipairs(weekly.box.edges) do
+        ok(sameColor(line._color, ui:Color("borderStrong")), "an unticked box's edge is borderStrong")
+    end
+    ok(not weekly.box.mark:IsShown(), "and there is no mark")
+    ok(point(daily.text, "LEFT")[2] == 38 and point(daily.data, "LEFT")[2] == 38,
+       "the text starts past the box and its 10 px gap: " .. tostring(point(daily.text, "LEFT")[2]))
+    ok(point(r[5].text, "LEFT")[2] == 12, "a plain item's text stays 12 in")
+    ok(r[1].box == nil and r[5].box == nil, "rows that never held a check item build no box")
+    ok(daily._mouse == true and weekly._mouse == true, "check rows take the mouse")
+    ok(sameColor(daily.text._textColor, ui:Color("text")) and daily.text._font[2] == 13, "their text is a plain item's")
+end)
+
+case("a click ticks the box in place, hands over the new state, and leaves the menu up", function()
+    local _, lib, ui = setup()
+    local log = {}
+    ui:ShowMenu(filterMenu(log))
+    local m = lib.shared.menu
+    local weekly = m.rows[3]
+    weekly:Click()
+    ok(m:IsShown(), "the menu stays open")
+    ok(log[1] == "weekly:true" and #log == 1, "the action hears the new state, ticked: " .. tostring(log[1]))
+    local fill, edges = boxColors(ui, weekly)
+    ok(sameColor(fill, ui:Color("accent")) and edges == 4 and weekly.box.mark:IsShown(), "and the box shows it at once")
+    weekly:Click()
+    ok(log[2] == "weekly:false" and m:IsShown(), "a second click unticks it, the menu still open")
+    fill = boxColors(ui, weekly)
+    ok(sameColor(fill, ui:Color("input")) and not weekly.box.mark:IsShown(), "and the box goes back")
+    m.rows[2]:Click()
+    ok(log[3] == "daily:false", "a row opened ticked unticks on its first click")
+    m.rows[5]:Click()
+    ok(log[4] == "reset" and not m:IsShown(), "a plain item still closes the menu")
+end)
+
+case("a raising check action keeps the menu up and reaches the error handler", function()
+    local env, lib, ui = setup()
+    ui:ShowMenu({ { kind = "check", text = "Boom", onClick = function() error("boom", 0) end } })
+    local b = lib.shared.menu.rows[1]
+    local good = pcall(b.Click, b)
+    ok(good and lib.shared.menu:IsShown() and env.errors[1] == "boom", "still open, the error handed on")
+    ok(b.box.mark:IsShown(), "and the box is ticked, as the click asked")
+end)
+
+case("a check item with no action still ticks", function()
+    local env, lib, ui = setup()
+    ui:ShowMenu({ { kind = "check", text = "Quiet" } })
+    local b = lib.shared.menu.rows[1]
+    ok(not b.box.mark:IsShown(), "an unset checked opens unticked")
+    b:Click()
+    ok(b.box.mark:IsShown() and lib.shared.menu:IsShown() and #env.errors == 0, "ticked, open, nothing raised")
+end)
+
+case("a reused row drops the box and the check behavior", function()
+    local _, lib, ui = setup()
+    local log = {}
+    ui:ShowMenu(filterMenu(log))
+    local m = lib.shared.menu
+    ui:ShowMenu(questMenu(log))
+    local r = m.rows
+    ok(not r[2].box:IsShown() and not r[3].box:IsShown(), "the old check rows hide their box")
+    ok(point(r[2].text, "LEFT")[2] == 12 and point(r[2].data, "LEFT")[2] == 12, "and their text moves back to 12")
+    ok(r[2]._checked == nil, "with no tick state left on the row")
+    r[2]:Click()
+    ok(log[1] == "pin" and not m:IsShown(), "the old check row is a plain item: it runs its action and closes")
+    ui:ShowMenu(filterMenu(log))
+    ok(r[3].box:IsShown() and not r[3].box.mark:IsShown(), "a row back on check duty paints its box afresh")
+    ui:ShowMenu(filterMenu(log))
+    ok(select("#", r[3]:GetChildren()) == 1, "and a row reused for check items again and again holds one box: "
+       .. select("#", r[3]:GetChildren()))
+end)
+
+case("the width counts the box on a check row", function()
+    local _, lib, ui = setup()
+    ui:ShowMenu({ { kind = "check", text = string.rep("x", 30) }, { text = "Go" } })
+    local m = lib.shared.menu
+    ok(m._w == 30 * 6 + 16 + 10 + 24 + 2, "the text, the box and its gap, 12 a side and the edge: " .. tostring(m._w))
+    ui:ShowMenu({ { text = string.rep("x", 30) }, { text = "Go" } })
+    ok(m._w == 30 * 6 + 24 + 2, "the same text as a plain item is narrower by the box: " .. tostring(m._w))
+end)
+
+case("the box edges are snapped again on every open, at the menu's own scale", function()
+    local env, lib, ui = setup()
+    ui:ShowMenu(filterMenu())
+    local box = lib.shared.menu.rows[2].box
+    ok(box.edges[1]._h == 1 and box.edges[3]._w == 1, "one pixel at scale 1")
+    env.UIParent._scale = 0.5
+    ui:ShowMenu(filterMenu())
+    ok(box.edges[1]._h == 2 and box.edges[3]._w == 2, "the box edges re-snapped after the UI scale changed")
+end)
+
 case("ShowMenu checks what it is given, and the error names the caller", function()
     local env, _, ui = setup()
     ok(not pcall(ui.ShowMenu, ui, { { text = "Pin" } }, "WorldMapFrame"), "an owner that is not a frame is refused")
@@ -435,6 +562,12 @@ case("ShowMenu checks what it is given, and the error names the caller", functio
     ok(not pcall(ui.ShowMenu, ui, { { onClick = function() end } }), "an item with no text is refused")
     ok(not pcall(ui.ShowMenu, ui, { { kind = "title" } }), "and so is a title with none")
     ok(pcall(ui.ShowMenu, ui, { { kind = "divider" }, { text = "" } }), "a divider needs no text, and empty text is text")
+    ok(not pcall(ui.ShowMenu, ui, { { kind = "check" } }), "a check item with no text is refused")
+    ok(not pcall(ui.ShowMenu, ui, { { kind = "check", text = "Daily", checked = 1 } }), "checked must be a boolean")
+    local goodC, errC = pcall(ui.ShowMenu, ui, { { text = "Daily", checked = true } })
+    ok(not goodC and tostring(errC):find("not a check item", 1, true) ~= nil,
+       "checked on a plain item is refused, by name: " .. tostring(errC))
+    ok(pcall(ui.ShowMenu, ui, { { kind = "check", text = "Daily", checked = false } }), "a check item is accepted")
     local good, err = pcall(function()
         local r = ui:ShowMenu({ { text = "Pin", danger = 1 } })
         return r
