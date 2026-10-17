@@ -650,6 +650,51 @@ case("the bar moves its own thumb", function()
     ok(not grip:GetScript("OnUpdate"), "the grip hiding ends a drag")
 end)
 
+-- The same bar: 392 long, top at 1000, a 224 thumb travelling 168 over a 300 range.
+case("the drag keeps the cursor on the thumb", function()
+    local env, _, ui = setup()
+    addTabs(ui)
+    ui:BuildSettings()
+    local t = tab(ui, "general")
+    local sf = t._scroll
+    local bar
+    for _, c in ipairs({ t._holder:GetChildren() }) do if c._type == "Slider" then bar = c end end
+    local grip = bar._euiGrip
+    sf._h, bar._h, bar._top = 400, 392, 1000
+    sf:_fire("OnScrollRangeChanged", 0, 300)
+    local function press(along)
+        env.cursorY = 1000 - along
+        env.mouseDown = "LeftButton"
+        grip:_fire("OnMouseDown", "LeftButton")
+    end
+    local function move(along)
+        env.cursorY = 1000 - along
+        grip:_fire("OnUpdate", 0.016)
+    end
+    press(180)
+    grip:_fire("OnMouseUp", "RightButton")
+    move(264)
+    ok(near(bar:GetValue(), 150), "another button let go mid-drag leaves the drag going")
+    grip:_fire("OnMouseUp", "MiddleButton")
+    ok(grip:GetScript("OnUpdate") ~= nil, "the middle button too")
+    grip:_fire("OnMouseUp", "LeftButton")
+    ok(not grip:GetScript("OnUpdate"), "the left button let go ends it")
+    bar:SetValue(300)
+    press(20)
+    ok(bar:GetValue() == 0, "a press on the track by the top end puts the thumb at the top")
+    move(40)
+    ok(near(bar:GetValue(), 20 / 168 * 300), "and a move from there moves the thumb as far as the cursor, with no slide first")
+    grip:_fire("OnMouseUp", "LeftButton")
+    bar:SetValue(0)
+    press(180)
+    sf:_fire("OnScrollRangeChanged", 0, 600)
+    move(180)
+    local thumb = 392 * 400 / 1000
+    ok(near(bar:GetValue(), (180 - 180 * thumb / 224) / (392 - thumb) * 600),
+       "a range that grows mid-drag keeps the cursor at the same share of the shorter thumb")
+    grip:_fire("OnMouseUp", "LeftButton")
+end)
+
 case("a tab with a preview gives the panel its right side", function()
     local _, _, ui = setup()
     addTabs(ui)

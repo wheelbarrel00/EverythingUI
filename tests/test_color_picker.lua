@@ -197,7 +197,9 @@ end
 -- the ColorSelect, read straight by GetColorAlpha, and there is no OpacitySliderFrame. OnShow seeds
 -- SetColorAlpha(opacity). Whether a SetColorAlpha from code fires OnColorSelect is not in the source,
 -- so here it does not.
--- The user moving the alpha thumb fires OnColorSelect, which calls swatchFunc then opacityFunc.
+-- Moving a COLOR fires OnColorSelect, which calls swatchFunc then opacityFunc. Moving the ALPHA thumb
+-- fires nothing: measured in game on retail and Forever (2026-10-16, the alpha landed only on Okay),
+-- which is why ElvUI polls GetColorAlpha too. The library's alpha watcher is what applies it live.
 local function newMainlinePicker(env)
     local cp = env.CreateFrame("Frame", "ColorPickerFrame", env.UIParent)
     cp._shown = false
@@ -234,7 +236,6 @@ local function newMainlinePicker(env)
     end
     function cp:DragAlpha(a)
         self._a = a
-        colorSelect()
     end
     function cp:PickColor(r, g, b)
         self._r, self._g, self._b = r, g, b
@@ -346,6 +347,14 @@ local function swatch(s, stored, hasAlpha)
 end
 
 local function A(sw) return sw.value and sw.value.a end
+
+-- One frame of the client: a frame's OnUpdate runs only while it and every parent are shown.
+local function tick(s, dt)
+    local w = s.state().watcher
+    if not (w and w:IsVisible()) then return end
+    local fn = w:GetScript("OnUpdate")
+    if fn then guard(fn, w, dt) end
+end
 
 local function layer(frame, name)
     local out = {}
@@ -598,20 +607,93 @@ case("the Mainline picker (retail, Forever) reads its alpha straight and settles
     ok(s.picker:IsShown() and s.picker._alphaShown == true, "an alpha picker shows its alpha control")
     ok(s.picker:GetColorAlpha() == 0.85, "seeded straight with the color's own alpha")
     ok(s.state().alphaInverted == nil, "and nothing is settled, so nothing is read backwards")
+    local opened, openCommits = A(bar), bar.commits
     drive(s.picker, "DragAlpha", 0.40)
-    ok(A(bar) == 0.40, "a drag stores the alpha it shows")
+    ok(A(bar) == opened and bar.commits == openCommits, "a drag alone commits nothing, as on the client")
+    tick(s, 0.1)
+    ok(A(bar) == 0.40, "the alpha watcher stores the alpha it shows")
     s.picker:PickColor(0.94, 0.54, 0.72)
     drive(s.picker, "ClickOkay")
     ok(A(bar) == 0.40 and bar.value.r == 0.94, "Okay keeps the color and the alpha")
     bar:Open()
     drive(s.picker, "DragAlpha", 0.1)
+    tick(s, 0.1)
+    ok(A(bar) == 0.1, "a drag applies live")
     drive(s.picker, "ClickCancel")
-    ok(A(bar) == 0.40, "Cancel restores the alpha the picker opened on")
+    ok(A(bar) == 0.40, "and Cancel still restores the alpha the picker opened on")
     local header = swatch(s, { r = 0.9, g = 0.3, b = 0.1 }, false)
     header:Open()
     ok(s.picker._alphaShown == false, "a no-alpha picker hides its alpha control")
     drive(s.picker, "ClickOkay")
     ok(A(header) == 1, "and commits 1")
+end)
+
+case("the Mainline alpha watcher applies a drag live, only while its own alpha picker is open", function()
+    local s = session({ mainline = true })
+    local bar = swatch(s, { r = 0.8, g = 0.6, b = 0.2, a = 0.85 }, true)
+    bar:Open()
+    local w = s.state().watcher
+    ok(w ~= nil and w:IsVisible(), "an alpha picker on the Mainline client starts the watcher")
+    local c0 = bar.commits
+    tick(s, 0.1)
+    tick(s, 0.1)
+    ok(bar.commits == c0, "the alpha it opened on is never committed by the watcher")
+
+    drive(s.picker, "DragAlpha", 0.5)
+    tick(s, 0.05)
+    ok(bar.commits == c0, "nothing is read before a tenth of a second")
+    tick(s, 0.05)
+    ok(bar.commits == c0 + 1 and A(bar) == 0.5, "a tenth of a second on, the drag is applied")
+    ok(bar.value.r == 0.8 and bar.value.g == 0.6 and bar.value.b == 0.2, "with the picker's own color")
+    tick(s, 0.1)
+    tick(s, 0.1)
+    ok(bar.commits == c0 + 1, "and an alpha that has not moved is not applied again")
+    drive(s.picker, "DragAlpha", 0.6)
+    tick(s, 0.04)
+    tick(s, 0.04)
+    ok(bar.commits == c0 + 1, "the wait starts over after each read")
+    tick(s, 0.04)
+    ok(bar.commits == c0 + 2 and A(bar) == 0.6, "and the next drag lands once it has run out")
+
+    drive(s.picker, "ClickOkay")
+    ok(not w:IsShown(), "closing the picker stops the watcher")
+    local closed = bar.commits
+    drive(s.picker, "DragAlpha", 0.2)
+    tick(s, 0.1)
+    ok(bar.commits == closed and A(bar) == 0.6, "so nothing reaches the swatch once it is closed")
+
+    local header = swatch(s, { r = 0.9, g = 0.3, b = 0.1 }, false)
+    header:Open()
+    ok(not w:IsShown(), "a no-alpha picker does not start it")
+    local h0 = header.commits
+    drive(s.picker, "DragAlpha", 0.33)
+    tick(s, 0.1)
+    ok(header.commits == h0, "so an alpha the header has no control for is never applied to it")
+    drive(s.picker, "ClickOkay")
+
+    bar:Open()
+    drive(s.picker, "DragAlpha", 0.15)
+    tick(s, 0.1)
+    ok(A(bar) == 0.15, "a reopened alpha picker watches again")
+    drive(s.picker, "ClickCancel")
+    ok(A(bar) == 0.6 and not w:IsShown(), "Cancel undoes the watched drag and stops the watcher")
+
+    local classic = session()
+    swatch(classic, { r = 0.8, g = 0.6, b = 0.2, a = 0.85 }, true):Open()
+    ok(classic.state().watcher == nil, "Classic's opacity slider applies as it moves, so it gets no watcher")
+end)
+
+case("the Mainline Class button reseeds the watcher with the alpha it reopens on", function()
+    local s = session({ mainline = true })
+    local bar = swatch(s, { r = 0.8, g = 0.6, b = 0.2, a = 0.3 }, true)
+    bar:Open()
+    drive(s.picker, "DragAlpha", 0.7)
+    local btn = s.state().classButton
+    if btn then guard(btn.Click, btn) end
+    ok(bar.value.r == CLASS_COLOR.r and A(bar) == 0.7, "the class color lands with the alpha dragged to")
+    local after = bar.commits
+    tick(s, 0.1)
+    ok(bar.commits == after, "and the watcher, reseeded by the reopen, commits nothing more")
 end)
 
 case("the Mainline Class button keeps the alpha straight", function()
