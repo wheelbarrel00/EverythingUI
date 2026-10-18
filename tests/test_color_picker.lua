@@ -696,6 +696,33 @@ case("the Mainline Class button reseeds the watcher with the alpha it reopens on
     ok(bar.commits == after, "and the watcher, reseeded by the reopen, commits nothing more")
 end)
 
+-- EQ Objective Tracker's pre-ship scan of 2026-10-17: Blizzard's open does not hide a picker that is
+-- already shown, so another addon opening it over a family picker fires no OnHide.
+case("a picker another addon opens over a family one is not watched as ours", function()
+    local s = session({ mainline = true })
+    local bar = swatch(s, { r = 0.8, g = 0.6, b = 0.2, a = 0.85 }, true)
+    bar:Open()
+    local w = s.state().watcher
+    local c0, a0 = bar.commits, A(bar)
+    s.picker:SetupColorPickerAndShow({ r = 0.1, g = 0.2, b = 0.3, opacity = 0.25, hasOpacity = true,
+        swatchFunc = function() end, opacityFunc = function() end,
+        cancelFunc = function() end })
+    ok(s.picker:IsShown() and w:IsShown(), "the other open leaves the picker shown, so no OnHide stopped the watcher")
+    drive(s.picker, "DragAlpha", 0.25)
+    tick(s, 0.1)
+    ok(bar.commits == c0 and A(bar) == a0, "the other addon's color and opacity never reach the family swatch")
+    ok(not w:IsShown(), "and the watcher stops at its first look")
+    tick(s, 0.1)
+    ok(bar.commits == c0, "so nothing more is stored after it")
+    drive(s.picker, "ClickOkay")
+    bar:Open()
+    ok(w:IsShown(), "a family picker opened afterwards is watched again")
+    drive(s.picker, "DragAlpha", 0.4)
+    tick(s, 0.1)
+    ok(A(bar) == 0.4, "and applies its drag live")
+    drive(s.picker, "ClickCancel")
+end)
+
 case("the Mainline Class button keeps the alpha straight", function()
     local s = session({ mainline = true })
     local bar = swatch(s, { r = 0.8, g = 0.6, b = 0.2, a = 0.3 }, true)

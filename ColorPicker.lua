@@ -56,7 +56,13 @@ local function ensureAlphaWatcher()
     if state.watcher then return state.watcher end
     local w = CreateFrame("Frame", nil, ColorPickerFrame)
     local since = 0
-    w:SetScript("OnUpdate", function(_, elapsed)
+    w:SetScript("OnUpdate", function(watcher, elapsed)
+        -- Another addon can open the picker over ours without hiding it, which fires no OnHide, so
+        -- its color must not be stored as ours.
+        if ColorPickerFrame.swatchFunc ~= state.apply then
+            watcher:Hide()
+            return
+        end
         since = since + elapsed
         if since < ALPHA_POLL then return end
         since = 0

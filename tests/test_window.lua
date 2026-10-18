@@ -1163,5 +1163,349 @@ case("a header beside a preview stops at the panel", function()
     ok(p2[1] == "TOPRIGHT" and p2[2] == -320, "its right end is the panel's left")
 end)
 
+-- MINOR 51: the settings search, which a host turns on with labels.search (the author, 2026-10-17).
+local SEARCH_LABELS = {
+    discord = "Join our Discord!", discordTipTitle = "Join our Discord", discordTip = "Click to copy the invite link.",
+    search = "Search settings", searchEmpty = "No settings match", searchTitle = "Search results",
+}
+
+local function never() return false end
+local function noop() end
+
+-- Three pages, a group holding two more, and every kind of place a search can find or must skip. Labels in other
+-- alphabets are written as bytes: E-acute, Cyrillic, Yo and the multiplication sign.
+local function searchSetup()
+    local env, _, ui, state = setup({ opts = { labels = SEARCH_LABELS } })
+    local log = { build = {}, refresh = {}, cards = {}, rows = {} }
+    local function reg(def)
+        local build = def.build
+        def.build = function(self, content)
+            log.build[def.id] = (log.build[def.id] or 0) + 1
+            build(self, content)
+        end
+        def.refresh = function() log.refresh[def.id] = (log.refresh[def.id] or 0) + 1 end
+        ui:RegisterTab(def)
+    end
+    reg({ id = "general", title = "General", order = 10, build = function(self, content)
+        local display = self:CreateGroup(content, "Display")
+        log.cards.display, log.content = display, content
+        log.rows.lock = display:Add(self:CreateCheckbox(content, "Lock tracker", never, noop))
+        log.rows.scale = display:Add(self:CreateSlider(content, "Tracker scale", 50, 200, 5, function() return 100 end, noop))
+        local hidden = self:CreateCheckbox(content, "Show hidden thing", never, noop)
+        display:Add(hidden)
+        hidden:Hide()
+        display:Layout()
+        display:Add(self:CreateTextRow(content, "Show version", "2.6.0"))
+        log.rows.reset = display:Add(self:CreateButton(content, "Reset filters", nil, noop))
+    end, footer = function(self, bar)
+        log.footerButton = self:CreateButton(bar, "Reset all settings", nil, noop)
+        self:CreateButton(bar, "Hidden reset", nil, noop):Hide()
+    end })
+    reg({ id = "tracker", title = "Tracker", order = 20, build = function(self, content)
+        local details = self:CreateGroup(content, "Quest Row Details")
+        log.cards.details = details
+        log.rows.level = details:Add(self:CreateCheckbox(content, "Show quest level", never, noop))
+        log.rows.red = details:Add(self:CreateCheckbox(content, "|cffff0000Red|r alert", never, noop))
+        local sounds = self:CreateGroup(content, "Sounds")
+        log.cards.sounds = sounds
+        log.rows.play = sounds:Add(self:CreateCheckbox(content, "Play a sound", never, noop))
+        local secret = self:CreateGroup(content, "Secret")
+        secret:Add(self:CreateCheckbox(content, "Show secret", never, noop))
+        secret:Hide()
+        local untitled = self:CreateGroup(content, nil)
+        log.rows.name = untitled:Add(self:CreateTextField(content, "Profile name", function() return "" end, noop))
+        untitled:Add(self:CreateCheckbox(content, "Bareable", never, noop))
+    end, footer = function(self, bar)
+        log.trackerFooter = self:CreateButton(bar, "Reset tracker look", nil, noop)
+    end })
+    ui:RegisterTab({ id = "lanes", title = "Lanes", order = 30, group = true })
+    reg({ id = "lanes.text", parent = "lanes", title = "Text", order = 1, build = function(self, content)
+        local fonts = self:CreateGroup(content, "Fonts")
+        log.rows.elan = fonts:Add(self:CreateCheckbox(content, "\195\137lan vital", never, noop))
+        log.rows.ru = fonts:Add(self:CreateCheckbox(content, "\208\159\208\190\208\186\208\176\208\183\208\176\209\130\209\140 level", never, noop))
+        log.rows.yo = fonts:Add(self:CreateCheckbox(content, "\208\129\208\187\208\186\208\176", never, noop))
+        log.rows.grid = fonts:Add(self:CreateCheckbox(content, "Grid 2\195\1513", never, noop))
+        fonts:Add(self:CreateCheckbox(content, "|TInterface/Icons/x:14|t Glow |A:star:12:12|aicons", never, noop))
+        fonts:Add(self:CreateCheckbox(content, "Long\nwrapped name", never, noop))
+        fonts:Add(self:CreateCheckbox(content, "Big-area tint", never, noop))
+    end })
+    reg({ id = "lanes.bars", parent = "lanes", title = "Bars", order = 2, build = function() end,
+          header = function(self, bar)
+              log.strip = self:CreateCheckbox(bar, "Next strip", never, noop)
+          end })
+    local f = ui:BuildSettings()
+    -- The client fires OnTextChanged for a SetText as well as for a keystroke, and the model fires neither.
+    local box = f.search and f.search.box
+    if box then
+        local set = box.SetText
+        box.SetText = function(self, s)
+            set(self, s)
+            env.fire(self, "OnTextChanged", false)
+        end
+    end
+    local function type_(s) box:SetText(s) end
+    local function shown()
+        local list, out = ui._results.list, {}
+        for i = 1, list._shown do out[i] = { list.rows[i].text:GetText(), list.rows[i].value:GetText() } end
+        return out
+    end
+    return env, ui, f, log, type_, shown, state
+end
+
+local function rowsAre(got, want)
+    if #got ~= #want then return false end
+    for i, w in ipairs(want) do
+        if got[i][1] ~= w[1] or got[i][2] ~= w[2] then return false end
+    end
+    return true
+end
+
+case("a host without labels.search keeps its sidebar as before, and the search labels come as a set", function()
+    local _, _, ui = setup()
+    addTabs(ui)
+    local f = ui:BuildSettings()
+    ok(f.search == nil and ui._results == nil, "no search field and no results page")
+    local p = tab(ui, "general")._nav._points[1] or {}
+    ok(p[1] == "TOPLEFT" and p[2] == 8 and p[3] == -12, "the first page row 12 from the top, as before")
+    local function labelled(extra)
+        local labels = { discord = "D", discordTipTitle = "D", discordTip = "D" }
+        for k, v in pairs(extra) do labels[k] = v end
+        return pcall(setup, { opts = { labels = labels } })
+    end
+    ok(not labelled({ search = "S" }), "search alone is refused")
+    ok(not labelled({ search = "S", searchEmpty = "E" }), "search with no title is refused")
+    ok(not labelled({ search = "S", searchTitle = "T" }), "search with no empty line is refused")
+    ok(labelled({ search = "S", searchEmpty = "E", searchTitle = "T" }), "all three are taken")
+    ok(labelled({ searchEmpty = "E", searchTitle = "T" }), "the other two alone turn nothing on")
+    ok(not labelled({ search = "S", searchEmpty = "E", searchTitle = "T", searchHint = "H" }), "an unknown label is still refused")
+end)
+
+case("labels.search puts a search field at the top of the sidebar and the pages under it", function()
+    local _, ui, f = searchSetup()
+    local field = f.search
+    ok(field and field._parent == f.sidebar, "a field in the sidebar")
+    local p1, p2 = field._points[1] or {}, field._points[2] or {}
+    ok(p1[1] == "TOPLEFT" and p1[2] == 8 and p1[3] == -12 and p2[1] == "TOPRIGHT" and p2[2] == -8 and p2[3] == -12,
+       "across the sidebar, 12 from the top and 8 in from each side")
+    ok(field.hint:GetText() == "Search settings", "hinting with the host's label")
+    local p = tab(ui, "general")._nav._points[1] or {}
+    ok(p[1] == "TOPLEFT" and p[2] == 8 and p[3] == -(12 + 30 + 12), "the first page row 12 under the field")
+    local results = ui._results
+    ok(results and results._parent == f.area and not results:IsShown(), "a results page in the content area, hidden")
+    local lp1, lp2 = results.list._points[1] or {}, results.list._points[2] or {}
+    ok(lp1[1] == "TOPLEFT" and lp1[2] == 24 and lp1[3] == -20 and lp2[1] == "BOTTOMRIGHT" and lp2[2] == -24 and lp2[3] == 0,
+       "its list where a page's column sits")
+    ok(results.empty:GetText() == "No settings match", "with the host's line for no match")
+end)
+
+case("typing lists the matching settings with their place, building every page once and refreshing none", function()
+    local _, ui, f, log, type_, shown = searchSetup()
+    local general = tab(ui, "general")
+    ok(log.build.general == 1 and log.build.tracker == nil and log.build["lanes.text"] == nil, "only the open page is built")
+    type_("show")
+    ok(rowsAre(shown(), { { "Show quest level", "Tracker > Quest Row Details" } }),
+       "a setting on an unopened page, and no hidden control, hidden card or text row")
+    ok(log.build.tracker == 1 and log.build["lanes.text"] == 1 and log.build["lanes.bars"] == 1, "every page built")
+    ok(log.trackerFooter ~= nil, "and its footer")
+    ok(log.refresh.tracker == nil and log.refresh["lanes.text"] == nil and log.refresh.general == 1, "none refreshed")
+    ok(ui._results:IsShown() and not general._holder:IsShown() and not general._footer:IsShown(),
+       "the results in place of the open page and its footer")
+    ok(f.section:GetText() == "Search results", "titled for the search")
+    ok(not ui._results.empty:IsShown(), "with no empty line")
+    local list = ui._results.list
+    list.scroll._h = 56
+    list.bar:SetMinMaxValues(0, 500)
+    list.bar:SetValue(200)
+    type_("show q")
+    ok(log.build.tracker == 1 and log.build.general == 1, "a second search builds nothing again")
+    ok(list.bar:GetValue() == 0, "and starts its list at the top")
+    type_("  ")
+    ok(not ui._results:IsShown() and general._holder:IsShown() and general._footer:IsShown(),
+       "blank text brings the open page back")
+    ok(f.section:GetText() == "General" and ui._current == "general", "titled for it again")
+end)
+
+case("every word has to be in the name, its card's or its page's, and a whole match in the name comes first", function()
+    local _, ui, _, _, type_, shown = searchSetup()
+    type_("tracker")
+    ok(rowsAre(shown(), {
+        { "Lock tracker", "General > Display" }, { "Tracker scale", "General > Display" },
+        { "Reset tracker look", "Tracker" },
+        { "Quest Row Details", "Tracker" }, { "Show quest level", "Tracker > Quest Row Details" },
+        { "Red alert", "Tracker > Quest Row Details" }, { "Sounds", "Tracker" }, { "Play a sound", "Tracker > Sounds" },
+        { "Profile name", "Tracker" }, { "Bareable", "Tracker" },
+    }), "names holding the word first, then the rest of the page named for it, each in page order")
+    type_("sounds")
+    ok(rowsAre(shown(), { { "Sounds", "Tracker" }, { "Play a sound", "Tracker > Sounds" } }), "a card is a place of its own")
+    type_("sounds play")
+    ok(rowsAre(shown(), { { "Play a sound", "Tracker > Sounds" } }), "one word in the card, one in the name")
+    type_("level show")
+    ok(rowsAre(shown(), { { "Show quest level", "Tracker > Quest Row Details" } }), "in any order")
+    type_("SHOW QUEST")
+    ok(#shown() == 1 and shown()[1][1] == "Show quest level", "whatever the case")
+    type_("red alert")
+    ok(rowsAre(shown(), { { "Red alert", "Tracker > Quest Row Details" } }), "a colored name read and shown plain")
+    type_("reset filters")
+    ok(rowsAre(shown(), { { "Reset filters", "General > Display" } }), "a button in a card, by its caption")
+    type_("reset all")
+    ok(rowsAre(shown(), { { "Reset all settings", "General" } }), "a footer's button, placed on its page")
+    type_("profile")
+    ok(rowsAre(shown(), { { "Profile name", "Tracker" } }), "a card with no title adds nothing to the place")
+    type_("\195\169lan")
+    ok(rowsAre(shown(), { { "\195\137lan vital", "Lanes > Text > Fonts" } }), "an accented capital, under its group")
+    type_("\195\137LAN")
+    ok(#shown() == 1, "typed in capitals too")
+    type_("\208\191\208\190\208\186\208\176\208\183\208\176\209\130\209\140")
+    ok(#shown() == 1 and shown()[1][2] == "Lanes > Text > Fonts", "Cyrillic typed in lower case")
+    type_("\208\159\208\158\208\154\208\144\208\151\208\144\208\162\208\172")
+    ok(#shown() == 1, "and in capitals, either half of the alphabet")
+    type_("\209\145\208\187\208\186\208\176")
+    ok(#shown() == 1, "Yo, from the block before the alphabet")
+    type_("2\195\1513")
+    ok(#shown() == 1, "the multiplication sign as it is")
+    type_("2\195\1833")
+    ok(#shown() == 0, "and never read as a division sign")
+    type_("secret")
+    ok(#shown() == 0 and ui._results.empty:IsShown(), "nothing in a hidden card, and the empty line says so")
+    type_("version")
+    ok(#shown() == 0, "nor a text row")
+    type_("play")
+    ok(rowsAre(shown(), {
+        { "Play a sound", "Tracker > Sounds" }, { "Display", "General" },
+        { "Lock tracker", "General > Display" }, { "Tracker scale", "General > Display" },
+        { "Reset filters", "General > Display" },
+    }), "a word starting a name before one inside a name, and both before the card's rows")
+    ok(not ui._results.empty:IsShown(), "the empty line goes once something matches")
+    type_("sound play")
+    ok(shown()[1][1] == "Play a sound", "every word has to start a word for the first place")
+    type_("ay sou")
+    ok(rowsAre(shown(), { { "Play a sound", "Tracker > Sounds" } }), "inside words when nothing starts with them")
+    type_("isp")
+    ok(rowsAre(shown(), {
+        { "Display", "General" }, { "Lock tracker", "General > Display" }, { "Tracker scale", "General > Display" },
+        { "Reset filters", "General > Display" },
+    }), "a name holding the word inside before the places under it")
+    type_("alert red")
+    ok(#shown() == 1, "a word after a color code still starts a word")
+    type_("level")
+    ok(rowsAre(shown(), {
+        { "Show quest level", "Tracker > Quest Row Details" },
+        { "\208\159\208\190\208\186\208\176\208\183\208\176\209\130\209\140 level", "Lanes > Text > Fonts" },
+    }), "in the sidebar's order, a group's pages in the group's place whatever their own order numbers")
+    local FONTS = "Lanes > Text > Fonts"
+    local fontRows = {
+        { "Fonts", "Lanes > Text" }, { "\195\137lan vital", FONTS },
+        { "\208\159\208\190\208\186\208\176\208\183\208\176\209\130\209\140 level", FONTS },
+        { "\208\129\208\187\208\186\208\176", FONTS }, { "Grid 2\195\1513", FONTS }, { "Glow icons", FONTS },
+        { "Long wrapped name", FONTS }, { "Big-area tint", FONTS },
+    }
+    type_("ext")
+    local want = { { "Next strip", "Lanes > Bars" } }
+    for _, r in ipairs(fontRows) do want[#want + 1] = r end
+    ok(rowsAre(shown(), want), "a name holding the word inside before the places only their page names")
+    type_("lanes ext")
+    want = {}
+    for _, r in ipairs(fontRows) do want[#want + 1] = r end
+    want[#want + 1] = { "Next strip", "Lanes > Bars" }
+    ok(rowsAre(shown(), want), "a word missing from the name keeps it among them, whatever the other word does")
+    type_("area")
+    ok(rowsAre(shown(), { { "Big-area tint", FONTS }, { "Bareable", "Tracker" } }), "a word after a hyphen starts a word")
+    type_("glow")
+    ok(rowsAre(shown(), { { "Glow icons", FONTS } }), "a name read without its icons")
+    type_("long wrapped")
+    ok(rowsAre(shown(), { { "Long wrapped name", FONTS } }), "and on one line")
+    type_("strip")
+    ok(rowsAre(shown(), { { "Next strip", "Lanes > Bars" } }), "a setting in a page's header strip, placed on its page")
+    type_("hidden")
+    ok(#shown() == 0, "nothing hidden, in a card or a footer")
+end)
+
+case("a result opens its page, scrolls to the place and flashes it", function()
+    local env, ui, f, log, type_ = searchSetup()
+    local tracker = tab(ui, "tracker")
+    local bar
+    for _, c in ipairs({ tracker._holder:GetChildren() }) do if c._type == "Slider" then bar = c end end
+    bar:SetMinMaxValues(0, 800)
+    tracker._scroll.UpdateScrollChildRect = function(self) self._vrange = 500 end
+    type_("play")
+    tracker._content._top, log.rows.play._top = 1000, 700
+    ui._results.list.rows[1]:Click()
+    ok(ui._current == "tracker" and tracker._holder:IsShown() and not ui._results:IsShown(), "the page in place of the results")
+    ok(f.search.box:GetText() == "" and f.section:GetText() == "Tracker", "the search cleared and the page titled")
+    ok(log.refresh.tracker == 1, "refreshed as it opens")
+    env.runTimers()
+    ok(bar:GetValue() == 300, "the setting brought to the top of the view")
+    local tex = log.rows.play._euiFlash
+    local r, g, b = ui:Color("accent")
+    ok(tex and tex._layer == "ARTWORK" and tex:IsShown() and tex:GetAlpha() == 1, "its row lit, behind the control")
+    ok(tex and sameColor(tex._color, r, g, b) and near(tex._color[4], 0.3), "in the accent at 30 percent")
+    ok(tex and #tex._points == 2 and tex._points[1][1] == "TOPLEFT" and tex._points[2][1] == "BOTTOMRIGHT", "across the row")
+    local driver = ui._flashDriver
+    env.fire(driver, "OnUpdate", 0.3)
+    ok(tex:GetAlpha() == 1, "held for a moment")
+    env.fire(driver, "OnUpdate", 0.5)
+    ok(near(tex:GetAlpha(), 1 - 0.4 / 1.2), "then fading")
+    env.fire(driver, "OnUpdate", 1.0)
+    ok(not tex:IsShown() and not driver:IsShown(), "and gone, and nothing left running")
+    type_("play")
+    ui._results.list.rows[1]:Click()
+    ok(tex:IsShown() and tex:GetAlpha() == 1 and driver:IsShown(), "the same place lit again from full")
+    env.fire(driver, "OnUpdate", 5)
+
+    type_("sounds")
+    log.cards.sounds._top = 900
+    ui._results.list.rows[1]:Click()
+    env.runTimers()
+    ok(bar:GetValue() == 100, "a card brought to the top by its title")
+    local panelTex = log.cards.sounds.panel._euiFlash
+    ok(panelTex and panelTex:IsShown(), "and its panel lit")
+
+    type_("level")
+    ui._results.list.rows[1]:Click()
+    ok(not panelTex:IsShown() and log.rows.level._euiFlash:IsShown(), "a new flash ends the last one")
+
+    type_("reset all")
+    ui._results.list.rows[1]:Click()
+    env.runTimers()
+    ok(ui._current == "general" and log.footerButton._euiFlash:IsShown(), "a footer's button lit on its page")
+end)
+
+case("Enter opens the first result, and a page picked or the window closed ends the search", function()
+    local env, ui, f, log, type_ = searchSetup()
+    type_("play")
+    env.fire(f.search.box, "OnEnterPressed")
+    ok(ui._current == "tracker" and log.rows.play._euiFlash:IsShown(), "Enter opens the first result")
+    type_("zzz")
+    env.fire(f.search.box, "OnEnterPressed")
+    ok(ui._current == "tracker" and ui._results:IsShown(), "and with none does nothing")
+    type_("show")
+    tab(ui, "general")._nav:Click()
+    ok(ui._current == "general" and not ui._results:IsShown() and f.search.box:GetText() == "", "a page row ends the search")
+    ok(tab(ui, "general")._holder:IsShown() and f.section:GetText() == "General", "and shows its page")
+
+    type_("play")
+    ui._results.list.rows[1]:Click()
+    type_("show")
+    f.search.box:SetFocus()
+    f:Show()
+    f:Hide()
+    ok(not f.search.box:HasFocus(), "closing the window lets go of the keyboard")
+    ok(not log.rows.play._euiFlash:IsShown() and not ui._flashDriver:IsShown(), "and ends a flash")
+    ui:ToggleSettings()
+    ok(f:IsShown() and not ui._results:IsShown() and f.search.box:GetText() == "", "it opens again with no search")
+    ok(tab(ui, "tracker")._holder:IsShown(), "on the page that was open")
+end)
+
+case("a result in a shut group opens the group", function()
+    local _, ui, _, _, type_ = searchSetup()
+    ui:SelectTab("lanes.text")
+    tab(ui, "lanes")._nav:Click()
+    ok(tab(ui, "lanes")._collapsed and not tab(ui, "lanes.text")._nav:IsShown(), "the group holding the page shut")
+    type_("\209\145\208\187\208\186\208\176")
+    ui._results.list.rows[1]:Click()
+    ok(ui._current == "lanes.text" and not tab(ui, "lanes")._collapsed, "opened again by the result")
+    ok(tab(ui, "lanes.text")._nav:IsShown(), "with the page's row shown")
+end)
+
 print(("test_window: %d passed, %d failed"):format(pass, fail))
 if fail > 0 then os.exit(1) end

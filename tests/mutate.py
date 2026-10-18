@@ -16,6 +16,7 @@ import tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LUA = os.environ.get('LUA51', r'C:\Users\Big Daddy\Documents\Tools\lua-5.1.5\lua5.1.exe')
 GATE = 'if lib.host ~= addonName then return end'
+TEST_TIMEOUT = 60
 
 MUTANTS = [
     # Which copy wins
@@ -800,8 +801,8 @@ MUTANTS = [
     ('Widgets.lua', '    box:SetAutoFocus(false)\n    box:SetMaxLetters(MAX_LETTERS)', '    box:SetMaxLetters(MAX_LETTERS)', 'search field may take the keyboard on its own'),
     ('Widgets.lua', '        hint:SetShown(not focused and box:GetText() == "")', '        hint:SetShown(box:GetText() == "")', 'hint shown while typing'),
     ('Widgets.lua', 'line:SetColorTexture(ctx:Color(focused and "borderStrong" or "inputBorder"))', 'line:SetColorTexture(ctx:Color("inputBorder"))', 'search edge never brightens'),
-    ('Widgets.lua', '    box:SetScript("OnEditFocusGained", paint)\n    box:SetScript("OnEditFocusLost", paint)\n    box:SetScript("OnTextChanged", paint)', '    box:SetScript("OnEditFocusLost", paint)\n    box:SetScript("OnTextChanged", paint)', 'focus gained not painted'),
-    ('Widgets.lua', '    box:SetScript("OnEditFocusLost", paint)\n    box:SetScript("OnTextChanged", paint)', '    box:SetScript("OnTextChanged", paint)', 'focus lost not painted'),
+    ('Widgets.lua', '    box:SetScript("OnEditFocusGained", paint)\n    box:SetScript("OnEditFocusLost", paint)\n    box:SetScript("OnTextChanged", function(b)', '    box:SetScript("OnEditFocusLost", paint)\n    box:SetScript("OnTextChanged", function(b)', 'focus gained not painted'),
+    ('Widgets.lua', '    box:SetScript("OnEditFocusLost", paint)\n    box:SetScript("OnTextChanged", function(b)', '    box:SetScript("OnTextChanged", function(b)', 'focus lost not painted'),
     ('Widgets.lua', '    box:SetScript("OnEditFocusGained", paint)\n    box:SetScript("OnEditFocusLost", paint)\n    box:SetScript("OnEscapePressed"', '    box:SetScript("OnEditFocusLost", paint)\n    box:SetScript("OnEscapePressed"', 'multi-line focus not painted'),
     ('Widgets.lua', '        local text = trim(b:GetText())', '        local text = b:GetText()', 'search text not trimmed'),
     ('Widgets.lua', '        if text ~= "" then onSubmit(text) end', '        onSubmit(text)', 'blank search submitted'),
@@ -1239,7 +1240,7 @@ MUTANTS = [
     ('Window.lua', '        if t.group then paintNav(self, t, t == group) end', '        if t.group then paintNav(self, t, false) end', 'the group holding the page never lit'),
     ('Window.lua', '    self._current = id\n    layoutNav(self)\n', '    self._current = id\n', 'groups never open on a selection'),
     ('Window.lua', '        if not t.parent then first = t break end', '        first = t break', 'the first page in the flat list opens first'),
-    ('Window.lua', '    local group = t.parent and tabById(ctx, t.parent)', '    local group = nil', 'the header names only the page'),
+    ('Window.lua', '    local group = t.parent and tabById(ctx, t.parent)\n    f.section:SetText', '    local group = nil\n    f.section:SetText', 'the header names only the page'),
     # MINOR 41 after review: ties keep registration order, ids are unique, an empty group is refused before
     # any frame exists, a strip and a footer hold library controls, and the group row's geometry.
     ('Window.lua', '        return a._seq < b._seq\n', '        return false\n', 'tied tabs left to an unstable sort'),
@@ -1293,12 +1294,94 @@ MUTANTS = [
     ('Controls.lua', '    while content and not content._euiColumn do content = content:GetParent() end\n', '    content = content:GetParent()\n', "only the frame's own parent taken for its page"),
     ('Controls.lua', '        if not (top and at) then return end\n', '', 'a frame not laid out yet scrolled'),
     ('Kit.lua', '    sf._euiBar = bar\n', '', 'the page keeps no bar to scroll'),
+    # MINOR 51: the settings search, turned on by a host's labels.search (the author, 2026-10-17).
+    ('Context.lua', '    if labels.search and not (labels.searchEmpty and labels.searchTitle) then', '    if false then', 'a search with no other labels accepted'),
+    ('Context.lua', 'labels.search and not (labels.searchEmpty and labels.searchTitle)', 'labels.search and not labels.searchEmpty', 'a search with no title accepted'),
+    ('Context.lua', '    searchTitle     = true,\n', '', 'the search title refused as unknown'),
+    ('Widgets.lua', '        if onChange then onChange(trim(b:GetText())) end\n', '', 'typing hands nothing over'),
+    ('Widgets.lua', 'if onChange then onChange(trim(b:GetText())) end', 'if onChange then onChange(b:GetText()) end', 'the live text untrimmed'),
+    ('Widgets.lua', '    box:SetScript("OnTextChanged", function(b)\n        paint()\n', '    box:SetScript("OnTextChanged", function(b)\n', 'typing leaves the hint unpainted'),
+    ('Widgets.lua', '    if onChange ~= nil and type(onChange) ~= "function" then', '    if false then', 'an onChange that is not a function accepted'),
+    ('Window.lua', '-(ctx._navTop or SIDEBAR_TOP)', '-SIDEBAR_TOP', 'the pages drawn under the field'),
+    ('Window.lua', 'local SEARCH_GAP = 12', 'local SEARCH_GAP = 8', 'the gap under the field'),
+    ('Window.lua', '    if searchLabel then\n', '    if true then\n', 'every host gets a search field'),
+    ('Window.lua', '        field:SetPoint("TOPLEFT", SIDEBAR_PADDING, -SIDEBAR_TOP)\n', '        field:SetPoint("TOPLEFT", 0, -SIDEBAR_TOP)\n', 'the field against the sidebar edge'),
+    ('Window.lua', 'local field = ctx:CreateSearchField(sidebar, searchLabel, function()', 'local field = ctx:CreateSearchField(sidebar, nil, function()', 'the field hints with nothing'),
+    ('Window.lua', '        f.search = field\n', '', 'the window keeps no field'),
+    ('Window.lua', '    if f.search then buildResults(self, area) end\n', '    buildResults(self, area)\n', 'every host gets a results page'),
+    ('Window.lua', '    list:SetPoint("TOPLEFT", sp.contentSides, -sp.contentTop)\n', '    list:SetPoint("TOPLEFT", 0, -sp.contentTop)\n', 'the results against the area edge'),
+    ('Window.lua', 'results.empty = ctx:CreateEmptyState(results, ctx.opts.labels.searchEmpty)', 'results.empty = ctx:CreateEmptyState(results, ctx.opts.labels.search)', 'the empty line says the hint'),
+    ('Window.lua', '    if self._results then self._results:Hide() end\n', '', 'a page picked leaves the results up'),
+    ('Window.lua', '    if f.search and f.search.box:GetText() ~= "" then f.search:SetText("") end\n', '', 'a page picked keeps the search text'),
+    ('Window.lua', '        if f.search then f.search.box:ClearFocus() end\n', '', 'closing the window keeps the keyboard'),
+    ('Window.lua', '            driver:Hide()\n            if driver.tex then driver.tex:Hide() end\n', '            driver:Hide()\n', 'closing the window leaves a flash lit'),
+    ('Window.lua', '            if not t.group then fillPage(ctx, t) end\n', '', 'a search builds no page'),
+    ('Window.lua', '            current._holder:Hide()\n', '', 'the open page left under the results'),
+    ('Window.lua', '            if current._footer then current._footer:Hide() end\n', '', "the open page's footer left under the results"),
+    ('Window.lua', '        ctx._window.section:SetText(ctx.opts.labels.searchTitle)\n', '', 'the results titled for the page'),
+    ('Window.lua', '    ctx._matches = matches\n', '', 'a click reads the last search'),
+    ('Window.lua', '    results.list:ScrollToRow(1)\n', '', 'a new search keeps the old scroll'),
+    ('Window.lua', '    results.empty:SetShown(#rows == 0)\n', '    results.empty:SetShown(false)\n', 'no empty line'),
+    ('Window.lua', '    elseif ctx._results:IsShown() then\n        ctx:SelectTab(ctx._current)\n', '    elseif false then\n        ctx:SelectTab(ctx._current)\n', 'blank text keeps the results'),
+    ('Window.lua', '            local m = ctx._matches[1]\n            if m then jump(ctx, m) end\n', '            local m = ctx._matches[1]\n', 'Enter opens nothing'),
+    ('Window.lua', '        local m = ctx._matches[key]\n        if m then jump(ctx, m) end\n', '        local m = ctx._matches[key]\n', 'a click opens nothing'),
+    ('Window.lua', 's = s:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub', 's = s:gsub', 'a colored name kept with its codes'),
+    ('Window.lua', ':gsub("|T.-|t", ""):gsub("|A.-|a", "")', ':gsub("|A.-|a", "")', 'an icon kept in a name'),
+    ('Window.lua', ':gsub("|A.-|a", ""):gsub("%s+", " ")', ':gsub("%s+", " ")', 'an atlas kept in a name'),
+    ('Window.lua', ':gsub("|A.-|a", ""):gsub("%s+", " ")', ':gsub("|A.-|a", "")', 'a wrapped name kept on two lines'),
+    ('Window.lua', '    return (s:match("^ *(.-) *$"))', '    return s', 'a name kept with its edge spaces'),
+    ('Window.lua', r'if b ~= 151 then return "\195" .. string.char(b + 32) end', r'return "\195" .. string.char(b + 32)', 'the multiplication sign folded'),
+    ('Window.lua', r's = s:lower():gsub("\195([\128-\158])"', r's = s:lower():gsub("\195([\128-\128])"', 'Latin-1 capitals not folded'),
+    ('Window.lua', r'        if b < 144 then return "\209" .. string.char(b + 16) end' + '\n', '', 'the block before the Cyrillic alphabet not folded'),
+    ('Window.lua', r'if b < 160 then return "\208" .. string.char(b + 32) end', r'if b < 160 then return "\208" .. string.char(b + 33) end', 'the first Cyrillic half folded wrong'),
+    ('Window.lua', r'return "\209" .. string.char(b - 32)', r'return "\209" .. string.char(b - 31)', 'the second Cyrillic half folded wrong'),
+    ('Window.lua', '    if settings[control] then\n        fs = control.label\n', '    if control.label then\n        fs = control.label\n', 'a text row found as a setting'),
+    ('Window.lua', '    elseif control.text and control.GetObjectType and control:GetObjectType() == "Button" then', '    elseif false then', 'a button never found'),
+    ('Window.lua', '            for _, k in ipairs(t._kids) do pages[#pages + 1] = k end\n', '', "a group's pages never searched"),
+    ('Window.lua', '        elseif not t.parent then\n            pages[#pages + 1] = t\n', '        else\n            pages[#pages + 1] = t\n', "a group's pages searched twice"),
+    ('Window.lua', '    for _, t in ipairs(pagesInOrder(ctx)) do\n', '    for _, t in ipairs(ctx._tabs) do\n', "a group's pages in their own order numbers"),
+    ('Window.lua', 'local path = group and (group.title .. PATH_SEP .. t.title) or t.title', 'local path = t.title', 'a page placed without its group'),
+    ('Window.lua', 'local PATH_SEP = " > "', 'local PATH_SEP = " / "', 'the place joined with a slash'),
+    ('Window.lua', '                if card:IsShown() then\n', '                if true then\n', 'a hidden card searched'),
+    ('Window.lua', '                        if row.control:IsShown() then\n', '                        if true then\n', 'a hidden control found'),
+    ('Window.lua', '                        add(t, title, path, card, card.panel)\n', '', 'a card never a place of its own'),
+    ('Window.lua', 'add(t, title, path, card, card.panel)', 'add(t, title, path, card, card)', "a card's title lit for its panel"),
+    ('Window.lua', '                        cardPath = path .. PATH_SEP .. title\n', '', 'a setting placed without its card'),
+    ('Window.lua', 'if label then add(t, label, cardPath, row, row) end', 'if label then add(t, label, path, row, row) end', 'a row placed without its card'),
+    ('Window.lua', 'for _, bar in ipairs({ t._header or false, t._footer or false }) do', 'for _, bar in ipairs({ t._header or false }) do', 'a footer never searched'),
+    ('Window.lua', 'for _, bar in ipairs({ t._header or false, t._footer or false }) do', 'for _, bar in ipairs({ t._footer or false }) do', 'a header strip never searched'),
+    ('Window.lua', '                    local barSettings = settingsOf(bar)\n', '                    local barSettings = {}\n', "a strip's settings never found"),
+    ('Window.lua', 'local label = c:IsShown() and labelOf(c, barSettings)', 'local label = labelOf(c, barSettings)', "a hidden footer's button found"),
+    ('Window.lua', '                tier = 3\n', '                tier = 2\n', 'a name without the word ranked with one holding it'),
+    ('Window.lua', '            elseif tier == 1 and not starts:find(" " .. w, 1, true) then', '            elseif not starts:find(" " .. w, 1, true) then', 'a name missing a word lifted by the next'),
+    ('Window.lua', '        local starts = " " .. own:gsub("%p", " ")\n', '        local starts = " " .. own\n', 'a word after a hyphen not a word start'),
+    ('Window.lua', '            if not all:find(w, 1, true) then tier = nil break end\n', '            if not all:find(w, 1, true) then tier = 3 break end\n', 'a place without the word found'),
+    ('Window.lua', '    for i = 2, 3 do\n', '    for i = 2, 2 do\n', 'places named only by their card or page dropped'),
+    ('Window.lua', '    if group then group._collapsed = nil end\n', '', 'a result leaves its group shut'),
+    ('Window.lua', '    if m.scroll then ctx:ScrollIntoView(m.scroll) end\n', '', 'a result not scrolled to'),
+    ('Window.lua', '    flash(ctx, m.flash)\n', '', 'a result not lit'),
+    ('Window.lua', '        tex = frame:CreateTexture(nil, "ARTWORK")\n', '        tex = frame:CreateTexture(nil, "BACKGROUND")\n', 'the flash under the fill'),
+    ('Window.lua', 'local FLASH_ALPHA = 0.3', 'local FLASH_ALPHA = 0.5', 'the flash strength'),
+    ('Window.lua', 'local FLASH_HOLD = 0.4', 'local FLASH_HOLD = 0.2', 'the flash hold'),
+    ('Window.lua', 'local FLASH_FADE = 1.2', 'local FLASH_FADE = 1.0', 'the flash fade'),
+    ('Window.lua', '            if a <= 0 then\n', '            if a < -1 then\n', 'a faded flash left running'),
+    ('Window.lua', '    if driver.tex and driver.tex ~= tex then driver.tex:Hide() end\n', '', 'a new flash leaves the last one lit'),
+    ('Window.lua', '    tex:SetAlpha(1)\n    tex:Show()\n', '    tex:Show()\n', 'a place lit again from where it faded'),
+    # MINOR 52: the opacity watcher stops once another addon has opened the picker over ours.
+    ('ColorPicker.lua', '        if ColorPickerFrame.swatchFunc ~= state.apply then\n            watcher:Hide()\n            return\n        end\n', '', "another addon's picker color is stored as ours"),
+    ('ColorPicker.lua', '            watcher:Hide()\n            return\n', '            return\n', 'a picker taken over keeps the watcher polling'),
+    ('ColorPicker.lua', 'if ColorPickerFrame.swatchFunc ~= state.apply then', 'if ColorPickerFrame.opacityFunc == nil then', 'the takeover read off whether an opacity callback is set'),
 ]
 
 
 def run_tests(root):
     for test in sorted(glob.glob(os.path.join(root, 'tests', 'test_*.lua'))):
-        if subprocess.run([LUA, test], capture_output=True).returncode != 0:
+        # A mutant can loop a test forever (MINOR 51's results list appending to itself did), and a
+        # test that never ends has failed, so it counts as caught rather than stalling the run.
+        try:
+            if subprocess.run([LUA, test], capture_output=True, timeout=TEST_TIMEOUT).returncode != 0:
+                return False
+        except subprocess.TimeoutExpired:
             return False
     return True
 
