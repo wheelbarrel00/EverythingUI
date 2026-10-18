@@ -1507,5 +1507,58 @@ case("a result in a shut group opens the group", function()
     ok(tab(ui, "lanes.text")._nav:IsShown(), "with the page's row shown")
 end)
 
+-- MINOR 54: a setting a tab anchors beside a card row by hand, such as a two-column list's right half (Everything
+-- Quests' World Quests filters) or a satellite color picker (EQ Objective Tracker's), is found right after that row.
+case("a setting placed beside a row is found with the row's card, right after that row", function()
+    local env, _, ui = setup({ opts = { labels = SEARCH_LABELS } })
+    local rows, built = {}, {}
+    ui:RegisterTab({ id = "start", title = "Start", order = 10, build = function() end })
+    ui:RegisterTab({ id = "filters", title = "Filters", order = 20, build = function(self, content)
+        local card = self:CreateGroup(content, "Rewards")
+        local function beside(row, label)
+            local cb = self:CreateCheckbox(content, label, never, noop)
+            cb:ClearAllPoints()
+            cb:SetPoint("LEFT", row, "CENTER", 8, 0)
+            built[label] = cb
+            return cb
+        end
+        rows.gold = card:Add(self:CreateCheckbox(content, "Gold reward", never, noop))
+        rows.item = card:Add(self:CreateCheckbox(content, "Item reward", never, noop))
+        local gone = self:CreateCheckbox(content, "Gone reward", never, noop)
+        rows.gone = card:Add(gone)
+        beside(rows.gold, "Pet reward")
+        beside(rows.gold, "Quest reward")
+        beside(rows.item, "Reputation reward")
+        beside(rows.item, "Hidden reward"):Hide()
+        beside(rows.gone, "Orphan reward")
+        gone:Hide()
+        local move = self:CreateButton(content, "Move reward", nil, noop)
+        move:SetPoint("RIGHT", rows.gold, "RIGHT", -8, 0)
+        card:Layout()
+    end })
+    local f = ui:BuildSettings()
+    local box = f.search.box
+    local set = box.SetText
+    box.SetText = function(self, s)
+        set(self, s)
+        env.fire(self, "OnTextChanged", false)
+    end
+    local function shown()
+        local list, out = ui._results.list, {}
+        for i = 1, list._shown do out[i] = list.rows[i].text:GetText() .. " @ " .. list.rows[i].value:GetText() end
+        return table.concat(out, " | ")
+    end
+    box:SetText("pet")
+    ok(shown() == "Pet reward @ Filters > Rewards", "a right-hand setting found with its card")
+    box:SetText("reward")
+    ok(shown() == "Rewards @ Filters | Gold reward @ Filters > Rewards | Pet reward @ Filters > Rewards"
+        .. " | Quest reward @ Filters > Rewards | Item reward @ Filters > Rewards | Reputation reward @ Filters > Rewards",
+       "each right after the row it sits beside, in the order made, each once, and none hidden, beside a hidden row or a plain button")
+    box:SetText("pet")
+    ui._results.list.rows[1]:Click()
+    ok(ui._current == "filters" and rows.gold._euiFlash and rows.gold._euiFlash:IsShown()
+       and not built["Pet reward"]._euiFlash, "a result opens the page and lights the row it sits beside")
+end)
+
 print(("test_window: %d passed, %d failed"):format(pass, fail))
 if fail > 0 then os.exit(1) end

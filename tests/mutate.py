@@ -1343,11 +1343,11 @@ MUTANTS = [
     ('Window.lua', 'local path = group and (group.title .. PATH_SEP .. t.title) or t.title', 'local path = t.title', 'a page placed without its group'),
     ('Window.lua', 'local PATH_SEP = " > "', 'local PATH_SEP = " / "', 'the place joined with a slash'),
     ('Window.lua', '                if card:IsShown() then\n', '                if true then\n', 'a hidden card searched'),
-    ('Window.lua', '                        if row.control:IsShown() then\n', '                        if true then\n', 'a hidden control found'),
+    ('Window.lua', '                        if row.control:IsShown() then\n                            local label = labelOf(row.control, settings)\n', '                        if true then\n                            local label = labelOf(row.control, settings)\n', 'a hidden control found'),
     ('Window.lua', '                        add(t, title, path, card, card.panel)\n', '', 'a card never a place of its own'),
     ('Window.lua', 'add(t, title, path, card, card.panel)', 'add(t, title, path, card, card)', "a card's title lit for its panel"),
     ('Window.lua', '                        cardPath = path .. PATH_SEP .. title\n', '', 'a setting placed without its card'),
-    ('Window.lua', 'if label then add(t, label, cardPath, row, row) end', 'if label then add(t, label, path, row, row) end', 'a row placed without its card'),
+    ('Window.lua', 'local label = labelOf(row.control, settings)\n                            if label then add(t, label, cardPath, row, row) end', 'local label = labelOf(row.control, settings)\n                            if label then add(t, label, path, row, row) end', 'a row placed without its card'),
     ('Window.lua', 'for _, bar in ipairs({ t._header or false, t._footer or false }) do', 'for _, bar in ipairs({ t._header or false }) do', 'a footer never searched'),
     ('Window.lua', 'for _, bar in ipairs({ t._header or false, t._footer or false }) do', 'for _, bar in ipairs({ t._footer or false }) do', 'a header strip never searched'),
     ('Window.lua', '                    local barSettings = settingsOf(bar)\n', '                    local barSettings = {}\n', "a strip's settings never found"),
@@ -1371,6 +1371,16 @@ MUTANTS = [
     ('ColorPicker.lua', '        if ColorPickerFrame.swatchFunc ~= state.apply then\n            watcher:Hide()\n            return\n        end\n', '', "another addon's picker color is stored as ours"),
     ('ColorPicker.lua', '            watcher:Hide()\n            return\n', '            return\n', 'a picker taken over keeps the watcher polling'),
     ('ColorPicker.lua', 'if ColorPickerFrame.swatchFunc ~= state.apply then', 'if ColorPickerFrame.opacityFunc == nil then', 'the takeover read off whether an opacity callback is set'),
+    # MINOR 54: a setting a tab anchors beside a card row by hand is found right after that row.
+    ('Window.lua', '                                if sideLabel then add(t, sideLabel, cardPath, row, row) end\n', '', 'a setting beside a row never found'),
+    ('Window.lua', 'if sideLabel then add(t, sideLabel, cardPath, row, row) end', 'if sideLabel then add(t, sideLabel, path, row, row) end', 'a setting beside a row placed without its card'),
+    ('Window.lua', 'if sideLabel then add(t, sideLabel, cardPath, row, row) end', 'if sideLabel then add(t, sideLabel, cardPath, row, c) end', 'a setting beside a row lit instead of its row'),
+    ('Window.lua', 'local sideLabel = c:IsShown() and labelOf(c, settings)', 'local sideLabel = labelOf(c, settings)', 'a hidden setting beside a row found'),
+    ('Window.lua', '                            if label then add(t, label, cardPath, row, row) end\n                            for _, c in ipairs(beside[row] or {}) do\n                                local sideLabel = c:IsShown() and labelOf(c, settings)\n                                if sideLabel then add(t, sideLabel, cardPath, row, row) end\n                            end\n', '                            for _, c in ipairs(beside[row] or {}) do\n                                local sideLabel = c:IsShown() and labelOf(c, settings)\n                                if sideLabel then add(t, sideLabel, cardPath, row, row) end\n                            end\n                            if label then add(t, label, cardPath, row, row) end\n', 'a setting beside a row listed before the row'),
+    ('Window.lua', 'local rel = not rowControl[c] and c:GetNumPoints() > 0 and select(2, c:GetPoint(1))', 'local rel = c:GetNumPoints() > 0 and select(2, c:GetPoint(1))', "a row's own control found twice"),
+    ('Window.lua', '    for _, c in ipairs(content._controls or {}) do\n', '    for _, c in ipairs({ content:GetChildren() }) do\n', 'a plain button beside a row found'),
+    ('Window.lua', 'isRow[row], rowControl[row.control] = true, true', 'rowControl[row.control] = true', 'no row known to stand beside'),
+    ('Window.lua', '            list[#list + 1] = c\n', '            table.insert(list, 1, c)\n', 'two settings beside one row listed backwards'),
 ]
 
 
