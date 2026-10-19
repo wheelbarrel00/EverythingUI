@@ -399,6 +399,19 @@ function M.newEnv(opts)
     env.tooltip = env._new(GameTooltip, "GameTooltip", env.UIParent)
     env.tooltip._shown = false
     function env.fire(frame, event, ...) frame:_fire(event, ...) end
+    -- The client's post-hook: the original runs first with the same arguments, then the hook, and the
+    -- original's returns are what the caller gets.
+    function env.hooksecurefunc(t, name, hook)
+        if type(t) == "string" then t, name, hook = env, t, name end
+        local orig = t[name]
+        assert(type(orig) == "function", "hooksecurefunc on a missing function: " .. tostring(name))
+        env._hooked = (env._hooked or 0) + 1
+        t[name] = function(...)
+            local out = { orig(...) }
+            hook(...)
+            return unpack(out)
+        end
+    end
     return env
 end
 

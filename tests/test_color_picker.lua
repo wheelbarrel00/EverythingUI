@@ -307,7 +307,7 @@ local function session(opts)
         id = "EQOT", title = "EQ Objective Tracker", version = "1.28.0",
         accent = { 0.784, 0.216, 0.243 }, L = {},
         tooltip = function() return env.tooltip end,
-        labels = { clear = "Clear" },
+        labels = opts.labels or { clear = "Clear" },
     })
     local s = { env = env, lib = lib, ui = ui, LibStub = LS }
     function s.state() return lib.shared.colorPicker or {} end
@@ -697,29 +697,80 @@ case("the Mainline Class button reseeds the watcher with the alpha it reopens on
 end)
 
 -- EQ Objective Tracker's pre-ship scan of 2026-10-17: Blizzard's open does not hide a picker that is
--- already shown, so another addon opening it over a family picker fires no OnHide.
-case("a picker another addon opens over a family one is not watched as ours", function()
+-- already shown, so another addon opening it over a family picker fires no OnHide. Since MINOR 55 the
+-- open itself detaches the family picker: its watcher, Class button, apply, reopen, cancel and owner.
+local function foreignOpen(s)
+    s.picker:SetupColorPickerAndShow({ r = 0.1, g = 0.2, b = 0.3, opacity = 0.25, hasOpacity = true,
+        swatchFunc = function() end, opacityFunc = function() end,
+        cancelFunc = function() end })
+end
+
+case("a picker another addon opens over a family one detaches the family's at once", function()
+    local s = session({ mainline = true })
+    local bar = swatch(s, { r = 0.8, g = 0.6, b = 0.2, a = 0.85 }, true)
+    bar:Open()
+    local w, btn, st = s.state().watcher, s.state().classButton, s.state()
+    ok(st.cancel and st.apply and st.reopen and btn and btn:IsShown(), "the family's open is attached first")
+    local c0, a0 = bar.commits, A(bar)
+    foreignOpen(s)
+    ok(s.picker:IsShown(), "the other open leaves the picker shown, so no OnHide fired")
+    ok(not w:IsShown(), "yet the watcher stops at the other addon's open")
+    ok(btn and not btn:IsShown(), "the family's Class button goes with it")
+    ok(st.apply == nil and st.reopen == nil and st.cancel == nil and st.owner == nil,
+       "and so do its apply, reopen, cancel and owner, so a window closing cannot cancel the other color")
+    drive(s.picker, "DragAlpha", 0.25)
+    tick(s, 0.1)
+    ok(bar.commits == c0 and A(bar) == a0, "the other addon's color and opacity never reach the family swatch")
+    drive(s.picker, "ClickOkay")
+    bar:Open()
+    ok(w:IsShown() and btn:IsShown() and st.cancel ~= nil, "a family picker opened afterwards is attached again")
+    drive(s.picker, "DragAlpha", 0.4)
+    tick(s, 0.1)
+    ok(A(bar) == 0.4, "and applies its drag live")
+    drive(s.picker, "ClickCancel")
+end)
+
+case("the family's own reopens stay attached", function()
+    local s = session({ mainline = true })
+    local bar = swatch(s, { r = 0.8, g = 0.6, b = 0.2, a = 0.3 }, true)
+    bar:Open()
+    local btn, st = s.state().classButton, s.state()
+    if btn then guard(btn.Click, btn) end
+    ok(st.apply and st.reopen and st.cancel and btn:IsShown(), "the Class button's reopen keeps the family attached")
+    swatch(s, { r = 0.1, g = 0.1, b = 0.1, a = 1 }, true):Open()
+    ok(st.apply and st.cancel and s.state().watcher:IsShown(), "and so does a second family swatch opened over the first")
+    ok(s.env._hooked == 1, "the open hook goes in once however many opens: " .. tostring(s.env._hooked))
+    drive(s.picker, "ClickCancel")
+end)
+
+case("the open hook is laid on any picker with SetupColorPickerAndShow, Classic too", function()
+    local s = session()
+    local bar = swatch(s, { r = 0.8, g = 0.6, b = 0.2, a = 0.85 }, true)
+    bar:Open()
+    local st = s.state()
+    ok(st.openHooked == true and st.cancel ~= nil, "Blizzard's Classic picker carries it")
+    foreignOpen(s)
+    ok(st.cancel == nil and st.apply == nil, "and another addon's open there detaches the family too")
+    local legacy = session({ legacy = true })
+    swatch(legacy, { r = 0.8, g = 0.6, b = 0.2, a = 0.85 }, true):Open()
+    ok(legacy.state().openHooked == nil and legacy.env._hooked == nil,
+       "the older field-assignment picker has no such call, so nothing is hooked there")
+end)
+
+-- The watcher's own look stays as the backstop for a takeover the open hook cannot see.
+case("a picker taken over without an open is still not watched as ours", function()
     local s = session({ mainline = true })
     local bar = swatch(s, { r = 0.8, g = 0.6, b = 0.2, a = 0.85 }, true)
     bar:Open()
     local w = s.state().watcher
     local c0, a0 = bar.commits, A(bar)
-    s.picker:SetupColorPickerAndShow({ r = 0.1, g = 0.2, b = 0.3, opacity = 0.25, hasOpacity = true,
-        swatchFunc = function() end, opacityFunc = function() end,
-        cancelFunc = function() end })
-    ok(s.picker:IsShown() and w:IsShown(), "the other open leaves the picker shown, so no OnHide stopped the watcher")
+    s.picker.swatchFunc = function() end
     drive(s.picker, "DragAlpha", 0.25)
     tick(s, 0.1)
-    ok(bar.commits == c0 and A(bar) == a0, "the other addon's color and opacity never reach the family swatch")
+    ok(bar.commits == c0 and A(bar) == a0, "a picker whose callbacks changed under it never stores into the family swatch")
     ok(not w:IsShown(), "and the watcher stops at its first look")
     tick(s, 0.1)
     ok(bar.commits == c0, "so nothing more is stored after it")
-    drive(s.picker, "ClickOkay")
-    bar:Open()
-    ok(w:IsShown(), "a family picker opened afterwards is watched again")
-    drive(s.picker, "DragAlpha", 0.4)
-    tick(s, 0.1)
-    ok(A(bar) == 0.4, "and applies its drag live")
     drive(s.picker, "ClickCancel")
 end)
 
@@ -887,7 +938,7 @@ local function picker(s, content, get, opts)
     local holder = s.ui:CreateColorPicker(content, opts.label or "Bar Color",
         function() return stored end,
         opts.setter or function(v) stored = v writes[#writes + 1] = v end,
-        opts.tooltip, opts.hasAlpha ~= false, opts.onClear)
+        opts.tooltip, opts.hasAlpha ~= false, opts.onClear, opts.followClass)
     return holder, function() return stored end, writes, function(v) stored = v end
 end
 
@@ -1287,6 +1338,197 @@ case("closing the window leaves another window's picker alone", function()
     ok(stored.g == 0.9, "and does not cancel it")
     local quiet = inWindow(session(), function() end)
     ok(guard(quiet.Hide, quiet), "a window closing with no picker open is fine")
+end)
+
+-- ------------------------------------------------------------------- the Class toggle (MINOR 55)
+-- followClass, the eighth argument, adds a Class toggle that stores class = true in the color: the swatch
+-- follows the player's class color while the color keeps its own channels for when it is turned off.
+-- Opening the picker on it changes the opacity and keeps it; picking another color turns it off.
+
+local CLASS_LABELS = { clear = "Clear", classColor = "Follows the class color of the character you are on." }
+
+local function classPicker(s, get, opts)
+    opts = opts or {}
+    opts.followClass = true
+    local content = newContent(s.env)
+    local h, read, writes, set = picker(s, content, get, opts)
+    return h, read, writes, set
+end
+
+local function swatchColor(h) return (layer(h.button, "ARTWORK")[1] or {})._color end
+
+case("a class color picker needs the host's classColor label", function()
+    local s = session()
+    local content = newContent(s.env)
+    local good, err = pcall(s.ui.CreateColorPicker, s.ui, content, "X", function() end, function() end, nil, true, nil, true)
+    ok(not good and tostring(err):find("needs opts.labels.classColor", 1, true) ~= nil,
+       "refused without it: " .. tostring(err))
+    local plain = picker(s, content, { r = 0.2, g = 0.4, b = 0.6, a = 0.5 })
+    ok(plain.class == nil, "and a picker that does not ask for one has no toggle")
+end)
+
+case("the Class toggle sits left of the swatch, in the client's own word, with the host's tip", function()
+    local s = session({ labels = CLASS_LABELS })
+    s.env.CLASS = "Klasse"
+    local h = classPicker(s, { r = 0.2, g = 0.4, b = 0.6, a = 0.5 }, { hasAlpha = true })
+    local t = h.class
+    ok(t ~= nil and t.text:GetText() == "Klasse", "a toggle labelled with the client's word for class")
+    local p = t and t._points[1] or {}
+    ok(p[1] == "RIGHT" and p[2] == h.button and p[3] == "LEFT" and p[4] == -8, "just left of the swatch")
+    local edges = 0
+    for _, e in ipairs(t and layer(t, "BORDER") or {}) do
+        if e._euiOwner == t and sameColor(e._color, s.ui:Color("navText")) then edges = edges + 1 end
+    end
+    ok(edges == 4, "an outlined button, as the library's secondary style draws")
+    ok(t and not t.lit:IsShown() and sameColor(t.text._textColor, s.ui:Color("navText")), "unlit while off")
+    ok(h:GetWidth() == h.label:GetStringWidth() + 8 + 34 + t:GetWidth() + 8, "its own width makes room for it")
+    s.env.fire(t, "OnEnter")
+    local lines = s.env.tooltip._lines
+    ok(lines[1] and lines[1].text == "Klasse" and lines[2] and lines[2].text == CLASS_LABELS.classColor,
+       "with the host's tip under the word")
+
+    local c = classPicker(s, { r = 0.2, g = 0.4, b = 0.6, a = 0.5 }, { onClear = function() end })
+    local cp = c.class and c.class._points[1] or {}
+    ok(cp[1] == "RIGHT" and cp[2] == c.button and cp[3] == "LEFT" and cp[4] == -8,
+       "against the swatch on a clearable picker too, so a hidden Clear's room never parts them")
+    local lp = c.clear and c.clear._points[1] or {}
+    ok(lp[1] == "RIGHT" and lp[2] == c.class and lp[3] == "LEFT" and lp[4] == -8, "with Clear left of the toggle")
+    ok(c:GetWidth() == c.label:GetStringWidth() + 8 + 34 + c.clear:GetWidth() + 8 + c.class:GetWidth() + 8,
+       "which keeps room for both")
+    local plain = picker(s, newContent(s.env), { r = 0.2, g = 0.4, b = 0.6, a = 0.5 }, { onClear = function() end })
+    local pp = plain.clear and plain.clear._points[1] or {}
+    ok(plain.class == nil and pp[1] == "RIGHT" and pp[2] == plain.button and pp[3] == "LEFT" and pp[4] == -8,
+       "and a clearable picker with no toggle keeps Clear against its swatch")
+end)
+
+case("turning Class on follows the class color and keeps the color's own", function()
+    local s = session({ labels = CLASS_LABELS })
+    local h, read = classPicker(s, { r = 0.2, g = 0.4, b = 0.6, a = 0.5 })
+    guard(h.class.Click, h.class)
+    local v = read()
+    ok(v and v.class == true and v.r == 0.2 and v.g == 0.4 and v.b == 0.6 and v.a == 0.5,
+       "on, it stores class with the color's own channels and opacity")
+    ok(sameColor(swatchColor(h), CLASS_COLOR.r, CLASS_COLOR.g, CLASS_COLOR.b, 0.5), "the swatch shows the class color at its opacity")
+    ok(h.class.lit:IsShown() and sameColor(h.class.text._textColor, s.ui:Color("accentText")), "and the toggle is lit")
+    guard(h.class.Click, h.class)
+    v = read()
+    ok(v and v.class == nil and v.r == 0.2 and v.a == 0.5, "off, the color's own channels come back: " .. tostring(v and v.class))
+    ok(sameColor(swatchColor(h), 0.2, 0.4, 0.6, 0.5), "and the swatch shows them")
+    ok(not h.class.lit:IsShown() and sameColor(h.class.text._textColor, s.ui:Color("navText")), "with the toggle unlit")
+end)
+
+case("an unset color turned to Class starts from the class color", function()
+    local s = session({ labels = CLASS_LABELS })
+    local h, read = classPicker(s, nil)
+    guard(h.class.Click, h.class)
+    local v = read()
+    ok(v and v.class == true and v.r == CLASS_COLOR.r and v.g == CLASS_COLOR.g and v.b == CLASS_COLOR.b and v.a == 1,
+       "it stores the class color, opaque, so turning it off later leaves that showing")
+    local none = session({ labels = CLASS_LABELS })
+    none.env.RAID_CLASS_COLORS = nil
+    local n, nread = classPicker(none, nil)
+    guard(n.class.Click, n.class)
+    local w = nread()
+    ok(w and w.class == true and w.r == 1 and w.g == 1 and w.b == 1, "with no class color to give it starts from white")
+    ok(sameColor(swatchColor(n), 1, 1, 1, 1), "and the swatch shows what is stored rather than nothing")
+end)
+
+case("opening a class color keeps it while only the opacity moves", function()
+    local s = session({ mainline = true, labels = CLASS_LABELS })
+    local h, read = classPicker(s, { r = 0.2, g = 0.4, b = 0.6, a = 0.5, class = true }, { hasAlpha = true })
+    guard(h.button.Click, h.button)
+    ok(near(s.picker._r, CLASS_COLOR.r) and near(s.picker._g, CLASS_COLOR.g) and near(s.picker._b, CLASS_COLOR.b),
+       "the picker opens on the class color it is following")
+    ok(s.picker:GetColorAlpha() == 0.5, "at the color's own opacity")
+    drive(s.picker, "DragAlpha", 0.3)
+    tick(s, 0.1)
+    local v = read()
+    ok(v and v.class == true and v.a == 0.3, "a new opacity is stored and Class stays on")
+    ok(v and v.r == 0.2 and v.g == 0.4 and v.b == 0.6, "with the color's own channels kept, not the class color's")
+    drive(s.picker, "ClickOkay")
+    v = read()
+    ok(v and v.class == true and v.r == 0.2, "Okay keeps it so")
+end)
+
+case("Blizzard's Classic picker commits its seed on open, and that keeps Class on", function()
+    local s = session({ labels = CLASS_LABELS })
+    local h, read = classPicker(s, { r = 0.2, g = 0.4, b = 0.6, a = 0.5, class = true }, { hasAlpha = true })
+    guard(h.button.Click, h.button)
+    local v = read()
+    ok(v and v.class == true and v.r == 0.2 and near(v.a, 0.5), "merely opening it leaves Class on and the color its own")
+    drive(s.picker, "ClickCancel")
+end)
+
+case("picking another color in the picker turns Class off, and Cancel puts it back", function()
+    local s = session({ mainline = true, labels = CLASS_LABELS })
+    local h, read = classPicker(s, { r = 0.2, g = 0.4, b = 0.6, a = 0.5, class = true }, { hasAlpha = true })
+    guard(h.button.Click, h.button)
+    drive(s.picker, "PickColor", 0.9, 0.1, 0.1)
+    local v = read()
+    ok(v and v.class == nil and v.r == 0.9 and v.g == 0.1 and v.b == 0.1, "a picked color replaces the class color")
+    ok(not h.class.lit:IsShown(), "and the toggle goes out")
+    drive(s.picker, "ClickCancel")
+    v = read()
+    ok(v and v.class == true and v.r == 0.2 and v.a == 0.5, "Cancel restores the class color it was opened on")
+    ok(h.class.lit:IsShown(), "and lights the toggle again")
+end)
+
+-- The picker hands back what its controls hold, so a color a step off the one it was opened on is
+-- still the class color. Each channel has to be near, so a pick matching one or two is another color.
+case("a pick a hair off the class color keeps Class, and one near in only some channels does not", function()
+    local function pickAt(r, g, b)
+        local s = session({ mainline = true, labels = CLASS_LABELS })
+        local h, read = classPicker(s, { r = 0.2, g = 0.4, b = 0.6, a = 0.5, class = true }, { hasAlpha = true })
+        guard(h.button.Click, h.button)
+        drive(s.picker, "PickColor", r, g, b)
+        return read()
+    end
+    local C = CLASS_COLOR
+    local v = pickAt(C.r + 0.004, C.g - 0.004, C.b + 0.004)
+    ok(v and v.class == true and v.r == 0.2 and v.g == 0.4 and v.b == 0.6,
+       "a pick within a step of the class color keeps Class on and the color's own channels")
+    v = pickAt(C.r + 0.02, C.g, C.b)
+    ok(v and v.class == nil, "two hundredths off in one channel is another color")
+    v = pickAt(C.r, 0.1, 0.1)
+    ok(v and v.class == nil and v.r == C.r, "red alone matching is another color")
+    v = pickAt(C.r, C.g, C.b - 0.2)
+    ok(v and v.class == nil and near(v.b, C.b - 0.2), "and so is red and green matching with blue off")
+    v = pickAt(C.r, C.g - 0.2, C.b)
+    ok(v and v.class == nil and near(v.g, C.g - 0.2), "or red and blue matching with green off")
+    v = pickAt(C.r + 0.012, C.g, C.b)
+    ok(v and v.class == nil, "and three steps off in one channel is a color picked on purpose")
+end)
+
+case("a picker that did not ask for Class never follows one stored by another", function()
+    local s = session({ labels = CLASS_LABELS })
+    local h = picker(s, newContent(s.env), { r = 0.2, g = 0.4, b = 0.6, a = 1, class = true })
+    ok(h.class == nil and sameColor(swatchColor(h), 0.2, 0.4, 0.6, 1),
+       "its swatch shows the stored color, whatever class flag the table carries")
+end)
+
+case("the Class toggle is sized again by Refit, through the picker", function()
+    local s = session({ labels = CLASS_LABELS })
+    local content = newContent(s.env)
+    local h = classPicker(s, { r = 0.2, g = 0.4, b = 0.6 })
+    ok(listed(h, h.class) == 1 and listed(content, h.class) == 0,
+       "listed on the picker's own holder, which a tab's Refit never walks")
+    h.label._measure = 120
+    h.class.text._measure = 70
+    guard(h.Fit, h)
+    ok(h.class:GetWidth() == 70 + 28, "the picker's Fit sizes the toggle from its word as it measures now: " .. h.class:GetWidth())
+    ok(h:GetWidth() == 120 + 8 + 34 + 70 + 28 + 8, "and the row with it: " .. h:GetWidth())
+end)
+
+case("Refresh repaints the toggle when the color changes elsewhere", function()
+    local s = session({ labels = CLASS_LABELS })
+    local h, _, _, set = classPicker(s, { r = 0.2, g = 0.4, b = 0.6 })
+    set({ r = 0.2, g = 0.4, b = 0.6, class = true })
+    h:Refresh()
+    ok(h.class.lit:IsShown() and sameColor(swatchColor(h), CLASS_COLOR.r, CLASS_COLOR.g, CLASS_COLOR.b, 1),
+       "a class color set by the host is shown, lit")
+    set(nil)
+    h:Refresh()
+    ok(not h.class.lit:IsShown() and sameColor(swatchColor(h), s.ui:Color("track")), "and an unset one is not")
 end)
 
 print(("test_color_picker: %d passed, %d failed"):format(pass, fail))

@@ -37,4 +37,5 @@ read_globals = {
     "C_AddOns",
     "UnitClass",
     "RAID_CLASS_COLORS",
+    "hooksecurefunc",
 }
