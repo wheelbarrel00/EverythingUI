@@ -1560,5 +1560,178 @@ case("a setting placed beside a row is found with the row's card, right after th
        and not built["Pet reward"]._euiFlash, "a result opens the page and lights the row it sits beside")
 end)
 
+case("the window position pair comes together and only as functions", function()
+    local env = W.newEnv()
+    local lib = W.loadLibrary(root, env, "HostA", W.newLibStub())
+    local base = {
+        id = "LootPro", title = "Loot Pro", version = "3.2.0", accent = { 0.153, 0.475, 0.353 }, L = {},
+        tooltip = function() return env.tooltip end,
+    }
+    local function try(extra)
+        local o = {}
+        for k, v in pairs(base) do o[k] = v end
+        for k, v in pairs(extra) do o[k] = v end
+        local good, err = pcall(lib.NewContext, lib, o)
+        return good, tostring(err)
+    end
+    local good, err = try({ getWindowPosition = function() end })
+    ok(not good and err:find("come as a pair", 1, true), "a getter alone raises: " .. err)
+    good, err = try({ setWindowPosition = function() end })
+    ok(not good and err:find("come as a pair", 1, true), "a setter alone raises: " .. err)
+    good, err = try({ getWindowPosition = 1, setWindowPosition = function() end })
+    ok(not good and err:find("must be a function", 1, true), "a getter that is not a function raises: " .. err)
+    good = try({ getWindowPosition = function() end, setWindowPosition = function() end })
+    ok(good, "the pair together is accepted")
+end)
+
+-- The model's UIParent is 1366 x 768 at scale 1, and the window 1100 x 720 with a 48 px title bar.
+local function positioned(o)
+    o = o or {}
+    local pos = { x = o.x, y = o.y, saved = {} }
+    local env, lib, ui, state = setup({ scale = o.scale, opts = {
+        getWindowPosition = function() return pos.x, pos.y end,
+        setWindowPosition = function(x, y) pos.x, pos.y = x, y pos.saved[#pos.saved + 1] = { x, y } end,
+    } })
+    addTabs(ui)
+    local f = ui:BuildSettings()
+    return env, lib, ui, state, f, pos
+end
+
+local function centerAt(f, x, y)
+    local s = f._scale or 1
+    f._center = { (683 + x) / s, (384 + y) / s }
+end
+
+local function placedAt(f)
+    local p = f._points
+    if #p ~= 1 or p[1][1] ~= "CENTER" or p[1][3] ~= "CENTER" then return nil end
+    return p[1][4], p[1][5]
+end
+
+case("without the position pair the window keeps today's clamp, drag and scale behavior", function()
+    local env, _, ui = setup()
+    addTabs(ui)
+    local f = ui:BuildSettings()
+    ok(f._clamped == true and f:GetScript("OnDragStop") == f.StopMovingOrSizing, "clamped, and letting go only stops the drag")
+    f._center = { 500, 400 }
+    f:ClearAllPoints()
+    f:SetPoint("TOPLEFT", env.UIParent, "BOTTOMLEFT", 80, 700)
+    ui:ApplyWindowScale()
+    local p = f._points[1]
+    ok(#f._points == 1 and p[1] == "CENTER" and p[3] == "BOTTOMLEFT" and near(p[4], 500) and near(p[5], 400),
+       "an open keeps the window where it was, as before")
+end)
+
+case("with the position pair the window is saved where it is let go", function()
+    local env, _, _, _, f, pos = positioned()
+    ok(f._clamped == false, "the client's clamp is off, so it can hang off the screen")
+    ok(f._drag and f._drag[1] == "LeftButton" and f:GetScript("OnDragStart") == f.StartMoving, "still dragged with the left button")
+    f:StartMoving()
+    centerAt(f, 100, 20)
+    env.fire(f, "OnDragStop")
+    ok(f._moving == false, "letting go stops the drag")
+    ok(#pos.saved == 1 and near(pos.saved[1][1], 100) and near(pos.saved[1][2], 20), "the offset from the screen's center is saved")
+    local x, y = placedAt(f)
+    ok(near(x, 100) and near(y, 20), "and the window is anchored there by its center")
+    f._center = nil
+    env.fire(f, "OnDragStop")
+    ok(#pos.saved == 1, "a release with no position read saves nothing")
+end)
+
+case("a release past an edge is pulled back so the title bar stays on screen", function()
+    local env, _, _, _, f, pos = positioned()
+    local function drop(x, y)
+        centerAt(f, x, y)
+        env.fire(f, "OnDragStop")
+        local s = pos.saved[#pos.saved]
+        return s[1], s[2]
+    end
+    local x, y = drop(1500, 0)
+    ok(near(x, 1083) and near(y, 0), "off the right edge, 150 of its width stays on screen: " .. x)
+    x = drop(-2000, 0)
+    ok(near(x, -1083), "off the left edge, the same: " .. x)
+    y = select(2, drop(0, 200))
+    ok(near(y, 24), "never above the screen's top: " .. y)
+    y = select(2, drop(0, -900))
+    ok(near(y, -696), "off the bottom, the whole title bar stays on screen: " .. y)
+    x, y = drop(-1000, -600)
+    ok(near(x, -1000) and near(y, -600), "a window partly off the left and the bottom is left where it is")
+    local px, py = placedAt(f)
+    ok(near(px, -1000) and near(py, -600), "and placed there")
+end)
+
+case("the position is kept in the screen's units, whatever the window scale", function()
+    local env, _, ui, state, f, pos = positioned({ scale = 0.5 })
+    ui:ApplyWindowScale()
+    ok(f._scale == 0.5, "the window is at half scale")
+    centerAt(f, 900, 0)
+    env.fire(f, "OnDragStop")
+    local s = pos.saved[#pos.saved]
+    ok(near(s[1], 808) and near(s[2], 0), "at half scale its 550 width keeps 150 on screen: " .. s[1])
+    local px = placedAt(f)
+    ok(near(px, 1616), "anchored in the window's own units: " .. tostring(px))
+    centerAt(f, 0, -600)
+    env.fire(f, "OnDragStop")
+    s = pos.saved[#pos.saved]
+    ok(near(s[2], -540), "its 24 unit title bar stays over the bottom: " .. s[2])
+    pos.x, pos.y = 100, 20
+    local n = #pos.saved
+    state.scale = 0.8
+    ui:ApplyWindowScale()
+    local py
+    px, py = placedAt(f)
+    ok(near(px, 125) and near(py, 25), "a new scale keeps the same place on screen")
+    ok(#pos.saved == n, "and saves nothing")
+end)
+
+case("every open places the window from the saved position", function()
+    local _, _, ui, _, f, pos = positioned({ x = 300, y = -100 })
+    ui:ToggleSettings()
+    ok(f:IsShown(), "opened")
+    local x, y = placedAt(f)
+    ok(near(x, 300) and near(y, -100), "an open goes to the saved place")
+    ui:ToggleSettings()
+    pos.x, pos.y = nil, nil
+    ui:ToggleSettings()
+    x, y = placedAt(f)
+    ok(near(x, 0) and near(y, 0), "nothing saved, as after a reset, opens it centered")
+    ui:ToggleSettings()
+    pos.x, pos.y = "left", 5
+    ui:ToggleSettings()
+    x, y = placedAt(f)
+    ok(near(x, 0) and near(y, 0), "a saved value that is not a number reads as the center")
+    ui:ToggleSettings()
+    pos.x, pos.y = 2000, -2000
+    local n = #pos.saved
+    ui:ToggleSettings()
+    x, y = placedAt(f)
+    ok(near(x, 1083) and near(y, -696), "a place saved on a bigger screen is pulled back on screen")
+    ok(#pos.saved == n and pos.x == 2000, "without saving over it, so the bigger screen gets it back")
+end)
+
+case("the position holds at a UI scale other than 1", function()
+    local env, _, ui, state, f, pos = positioned()
+    env.UIParent._scale = 0.7
+    ui:ApplyWindowScale()
+    centerAt(f, 100, 20)
+    env.fire(f, "OnDragStop")
+    local s = pos.saved[#pos.saved]
+    ok(near(s[1], 100) and near(s[2], 20), "saved in the screen's units under a 0.7 UI scale: " .. s[1] .. "," .. s[2])
+    local px, py = placedAt(f)
+    ok(near(px, 100) and near(py, 20), "placed back where it was let go")
+    centerAt(f, 1500, 0)
+    env.fire(f, "OnDragStop")
+    s = pos.saved[#pos.saved]
+    ok(near(s[1], 1083), "the right edge is measured in the screen's units too: " .. s[1])
+    state.scale = 0.5
+    ui:ApplyWindowScale()
+    centerAt(f, 900, 0)
+    env.fire(f, "OnDragStop")
+    s = pos.saved[#pos.saved]
+    ok(near(s[1], 808), "a half scale window under a 0.7 UI scale keeps 150 on screen: " .. s[1])
+    px = placedAt(f)
+    ok(near(px, 1616), "anchored in the window's own units: " .. tostring(px))
+end)
+
 print(("test_window: %d passed, %d failed"):format(pass, fail))
 if fail > 0 then os.exit(1) end
