@@ -575,5 +575,135 @@ case("ShowMenu checks what it is given, and the error names the caller", functio
     ok(not good and tostring(err):find("test_menu.lua", 1, true) ~= nil, "pointing at the caller: " .. tostring(err))
 end)
 
+local function twoChecks()
+    return { { kind = "check", text = "Daily", checked = true }, { kind = "check", text = "Weekly", checked = false } }
+end
+
+case("RefreshMenu repaints the open menu where it stands", function()
+    local env, lib, ui = setup()
+    local owner = env.CreateFrame("Frame", nil, env.UIParent)
+    env.cursorX, env.cursorY = 100, 200
+    ui:ShowMenu(questMenu(), owner)
+    local m = lib.shared.menu
+    local before = #m._points
+    env.cursorX, env.cursorY = 400, 50
+    ok(ui:RefreshMenu(twoChecks()) == true, "it answers true with the menu open")
+    local p = point(m, "TOPLEFT")
+    ok(#m._points == before and near(p[4], 100) and near(p[5], 200),
+       "its top left stays where it was, not at the cursor: " .. tostring(p[4]) .. ", " .. tostring(p[5]))
+    ok(m:IsShown(), "it stays shown")
+    ok(m.rows[1].text:GetText() == "Daily" and m.rows[2].text:GetText() == "Weekly", "the rows carry the new texts")
+    ok(m.rows[1].box.mark:IsShown() and not m.rows[2].box.mark:IsShown(), "and the new ticks")
+    for i = 3, 7 do ok(not m.rows[i]:IsShown(), "row " .. i .. " is put away") end
+    ok(m._h == 4 + 24 * 2 + 4, "as tall as its two rows: " .. tostring(m._h))
+    ok(m.owner == owner, "the owner is kept")
+end)
+
+case("a plain row whose action refreshes keeps the menu up", function()
+    local _, lib, ui = setup()
+    ui:ShowMenu({ { text = "Select all", onClick = function() ui:RefreshMenu(twoChecks()) end }, { text = "Cancel" } })
+    lib.shared.menu.rows[1]:Click()
+    local m = lib.shared.menu
+    ok(m:IsShown(), "the menu stays up")
+    ok(m.rows[1].text:GetText() == "Daily" and m.rows[2].text:GetText() == "Weekly", "showing the new rows")
+end)
+
+case("with no menu shown RefreshMenu does nothing", function()
+    local _, lib, ui = setup()
+    ok(ui:RefreshMenu({ { text = "Pin" } }) == false, "false before any menu was built")
+    ok(lib.shared.menu == nil, "and it builds none")
+    ui:ShowMenu(questMenu())
+    local m = lib.shared.menu
+    m:Hide()
+    local gen = m.gen
+    ok(ui:RefreshMenu({ { text = "Pin" } }) == false, "false once the menu closed")
+    ok(m.rows[1].text:GetText() == "The Fall of the Lich King" and not m:IsShown() and m.gen == gen,
+       "and the closed menu is left as it was")
+end)
+
+case("RefreshMenu checks its items as ShowMenu does", function()
+    local _, lib, ui = setup()
+    ui:ShowMenu(questMenu())
+    local g0, e0 = pcall(ui.RefreshMenu, ui, {})
+    ok(not g0 and tostring(e0):find("RefreshMenu needs a list of items", 1, true) ~= nil,
+       "an empty list is refused, naming the call: " .. tostring(e0))
+    ok(not pcall(ui.RefreshMenu, ui, nil), "no list is refused")
+    local g1, e1 = pcall(ui.RefreshMenu, ui, { "Pin" })
+    ok(not g1 and tostring(e1):find("RefreshMenu item 1 is not a table", 1, true) ~= nil,
+       "an item that is not a table is refused: " .. tostring(e1))
+    ok(not pcall(ui.RefreshMenu, ui, { { text = "Pin", onclick = function() end } }), "a misspelled field is refused")
+    ok(not pcall(ui.RefreshMenu, ui, { { kind = "header", text = "Quest" } }), "an unknown kind is refused")
+    ok(not pcall(ui.RefreshMenu, ui, { { onClick = function() end } }), "an item with no text is refused")
+    local g2, e2 = pcall(ui.RefreshMenu, ui, { { text = "Daily", checked = true } })
+    ok(not g2 and tostring(e2):find("not a check item", 1, true) ~= nil, "checked on a plain item is refused")
+    local good, err = pcall(function()
+        local r = ui:RefreshMenu({ { text = "Pin", danger = 1 } })
+        return r
+    end)
+    ok(not good and tostring(err):find("test_menu.lua", 1, true) ~= nil, "pointing at the caller: " .. tostring(err))
+    ok(lib.shared.menu.rows[1].text:GetText() == "The Fall of the Lich King", "a refused list changes nothing")
+    lib.shared.menu:Hide()
+    ok(not pcall(ui.RefreshMenu, ui, {}), "a bad list is refused even with no menu shown")
+    local g3, e3 = pcall(ui.ShowMenu, ui, { "Pin" })
+    ok(not g3 and tostring(e3):find("ShowMenu item 1 is not a table", 1, true) ~= nil,
+       "ShowMenu still names itself: " .. tostring(e3))
+end)
+
+case("a refresh is sized again a frame later", function()
+    local env, lib, ui = setup()
+    ui:ShowMenu({ { text = "Pin to tracker" } })
+    local m = lib.shared.menu
+    env.runTimers()
+    ui:RefreshMenu({ { text = "Untrack" } })
+    m.rows[1].text._measure = 210
+    env.runTimers()
+    ok(m._w == 210 + 24 + 2, "the width follows the text as drawn: " .. tostring(m._w))
+end)
+
+case("a refresh snaps its rows' lines at the menu's scale", function()
+    local env, lib, ui = setup()
+    ui:ShowMenu({ { text = "Pin" } })
+    local m = lib.shared.menu
+    env.UIParent._scale = 0.5
+    ui:RefreshMenu({ { text = "Pin" }, { kind = "divider" }, { kind = "check", text = "Daily", checked = false } })
+    ok(m.rows[2].line._h == 2, "the divider line re-snapped: " .. tostring(m.rows[2].line._h))
+    ok(m.rows[3].box.edges[1]._h == 2 or m.rows[3].box.edges[1]._w == 2, "and the box edges")
+end)
+
+-- Lens B, 2.23.0 scan: only the bad-field error's level and only two messages' names were pinned, so a
+-- check() error left at level 2, or naming ShowMenu, passed.
+case("every refused list points at the caller and names the call made", function()
+    local _, _, ui = setup()
+    ui:ShowMenu(questMenu())
+    local lists = {
+        { {}, "RefreshMenu needs a list of items" },
+        { { "Pin" }, "RefreshMenu item 1 is not a table" },
+        { { { text = "Pin", danger = 1 } }, "RefreshMenu item 1 has a bad or unknown field danger" },
+        { { { kind = "header", text = "Quest" } }, "RefreshMenu item 1 has an unknown kind header" },
+        { { { onClick = function() end } }, "RefreshMenu item 1 needs text" },
+        { { { text = "Daily", checked = true } }, "RefreshMenu item 1 has checked but is not a check item" },
+    }
+    for _, c in ipairs(lists) do
+        local good, err = pcall(function() local r = ui:RefreshMenu(c[1]) return r end)
+        err = tostring(err)
+        ok(not good and err:find(c[2], 1, true) ~= nil, "names RefreshMenu: " .. err)
+        ok(err:find("test_menu.lua", 1, true) ~= nil, "and points at the caller: " .. err)
+        local g2, e2 = pcall(function() local r = ui:ShowMenu(c[1]) return r end)
+        e2 = tostring(e2)
+        ok(not g2 and e2:find((c[2]:gsub("RefreshMenu", "ShowMenu")), 1, true) ~= nil, "ShowMenu names itself: " .. e2)
+        ok(e2:find("test_menu.lua", 1, true) ~= nil, "and points at its caller: " .. e2)
+    end
+end)
+
+case("a refresh never hides the menu on its way, so Escape stays armed in a fight", function()
+    local _, lib, ui = setup()
+    ui:ShowMenu(questMenu())
+    local m = lib.shared.menu
+    local hides = 0
+    m:HookScript("OnHide", function() hides = hides + 1 end)
+    ui:RefreshMenu(twoChecks())
+    ok(hides == 0 and m:IsShown(), "no OnHide fired: " .. hides)
+end)
+
 print(("test_menu: %d passed, %d failed"):format(pass, fail))
 if fail > 0 then os.exit(1) end

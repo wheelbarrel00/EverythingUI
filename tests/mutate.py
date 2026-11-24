@@ -592,7 +592,7 @@ MUTANTS = [
     ('Menu.lua', '        fs:SetWordWrap(false)\n', '', 'a long title wraps'),
     ('Menu.lua', '    local inset = check and (PAD + sp.checkbox + sp.checkboxGap) or PAD', '    local inset = check and (PAD + sp.checkbox + sp.checkboxGap) or 0', 'menu text against the edge'),
     ('Menu.lua', 'local PAD = 12', 'local PAD = 10', 'menu text inset'),
-    ('Menu.lua', '        paint(self, b, items[i])\n        b:Show()\n', '        paint(self, b, items[i])\n', 'a row put away never comes back'),
+    ('Menu.lua', '        paint(ctx, b, items[i])\n        b:Show()\n', '        paint(ctx, b, items[i])\n', 'a row put away never comes back'),
     ('Menu.lua', '    for i = #items + 1, #m.rows do m.rows[i]:Hide() end\n', '', 'rows past the menu left shown'),
     ('Menu.lua', '        y = y + b:GetHeight()\n', '', 'menu rows not stacked'),
     ('Menu.lua', '        b:SetPoint("TOPLEFT", m, "TOPLEFT", 1, -y)', '        b:SetPoint("TOPLEFT", m, "TOPLEFT", 0, -y)', 'a row paints over the left edge'),
@@ -618,7 +618,7 @@ MUTANTS = [
     ('Menu.lua', '        if item.kind and not KINDS[item.kind] then', '        if false then', 'an unknown kind accepted'),
     ('Menu.lua', '        if item.kind ~= "divider" and not item.text then', '        if false then', 'an item with no text accepted'),
     ('Menu.lua', '        if item.kind ~= "divider" and not item.text then', '        if item.kind == nil and not item.text then', 'a title with no text accepted'),
-    ('Menu.lua', 'has a bad or unknown field %s"):format(i, tostring(key)), 2)', 'has a bad or unknown field %s"):format(i, tostring(key)), 1)', 'ShowMenu error points at the library'),
+    ('Menu.lua', 'has a bad or unknown field %s"):format(who, i, tostring(key)), 3)', 'has a bad or unknown field %s"):format(who, i, tostring(key)), 2)', 'a menu item error points at the library'),
 
     # MINOR 17, for Everything Quests: a slider's own readout format, and an icon on a checkbox.
     ('Controls.lua', '        if format then return format(v) end\n', '', 'slider format ignored'),
@@ -703,6 +703,17 @@ MUTANTS = [
     ('Menu.lua', '                w = w + sp.checkbox + sp.checkboxGap\n', '', 'the width leaves out the box'),
     ('Menu.lua', '        if item.checked ~= nil and item.kind ~= "check" then\n', '        if false then\n', 'checked on a plain item is let through'),
     ('Menu.lua', '        if m.rows[i].box then kit.SnapLines(m.rows[i].box.edges) end\n', '', 'the box edges are never snapped again'),
+    # MINOR 58: RefreshMenu repaints the open menu where it stands.
+    ('Menu.lua', '    check(items, "RefreshMenu")\n', '', 'a refresh takes any list'),
+    ('Menu.lua', '    check(items, "RefreshMenu")\n', '    check(items, "ShowMenu")\n', 'a refresh error names ShowMenu'),
+    ('Menu.lua', '    if not (m and m:IsShown()) then return false end\n', '', 'a refresh paints a closed menu'),
+    ('Menu.lua', '    if not (m and m:IsShown()) then return false end\n', '    if not m then return false end\n', 'a refresh paints a hidden menu'),
+    ('Menu.lua', 'then return false end\n    fill(self, m, items)\n    layout(m)\n', 'then return false end\n    layout(m)\n', 'a refresh never repaints the rows'),
+    ('Menu.lua', '    fill(self, m, items)\n    layout(m)\n    layoutSoon(m)\n    return true', '    fill(self, m, items)\n    layoutSoon(m)\n    return true', 'a refresh is not laid out at once'),
+    ('Menu.lua', '    layoutSoon(m)\n    return true', '    return true', 'a refresh is never sized again'),
+    ('Menu.lua', '    layoutSoon(m)\n    return true', '    layoutSoon(m)\n    return false', 'a refresh answers false'),
+    ('Menu.lua', '    fill(self, m, items)\n    layout(m)\n    layoutSoon(m)\n', '    fill(self, m, items)\n    layout(m)\n    m:ClearAllPoints()\n    local cx, cy = GetCursorPosition()\n    m:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", cx, cy)\n    layoutSoon(m)\n', 'a refresh moves the menu to the cursor'),
+    ('Menu.lua', '    fill(self, m, items)\n    layout(m)\n    layoutSoon(m)\n', '    fill(self, m, items)\n    m.owner = nil\n    layout(m)\n    layoutSoon(m)\n', 'a refresh drops the owner'),
     # MINOR 22, for Everything Quests' main windows: CreateWindow, CreateScrollArea, the search field,
     # the list, the tag, the progress bar, the empty state, and a dropdown option's suffix.
     ('MainWindow.lua', GATE, '', 'MainWindow host check removed'),
@@ -1451,6 +1462,17 @@ MUTANTS = [
     ('Window.lua', '    local k = f:GetEffectiveScale() / UIParent:GetEffectiveScale()\n    return cx * k', '    local k = f:GetEffectiveScale()\n    return cx * k', 'the saved offset ignores the UI scale'),
     ('Window.lua', '    local k = f:GetEffectiveScale() / UIParent:GetEffectiveScale()\n    local w, h', '    local k = f:GetEffectiveScale()\n    local w, h', 'the edges ignore the UI scale'),
     ('Window.lua', '    local k = UIParent:GetEffectiveScale() / f:GetEffectiveScale()', '    local k = 1 / f:GetEffectiveScale()', 'the anchor ignores the UI scale'),
+]
+
+
+# EQOT's 2026-11-23 scan closed these in test_menu.lua: every refused list's error level and call name, and a
+# refresh that never hides the menu.
+MUTANTS += [
+    ('Menu.lua', 'needs a list of items"):format(who), 3)', 'needs a list of items"):format(who), 2)', "empty-list error at wrong level (EQOT's 2026-11-23 scan)"),
+    ('Menu.lua', 'item %d is not a table"):format(who, i), 3)', 'item %d is not a table"):format(who, i), 2)', "not-a-table error level (EQOT's 2026-11-23 scan)"),
+    ('Menu.lua', '    layoutSoon(m)\n    return true\nend', '    layoutSoon(m)\n    m:Hide()\n    m:Show()\n    return true\nend', "RefreshMenu hides and re-shows (EQOT's 2026-11-23 scan)"),
+    ('Menu.lua', 'has an unknown kind %s"):format(who, i, item.kind)', 'has an unknown kind %s"):format("ShowMenu", i, item.kind)', "kind error names ShowMenu (EQOT's 2026-11-23 scan)"),
+    ('Menu.lua', '        if item.checked ~= nil and item.kind ~= "check" then\n            error(("EverythingUI: %s item %d has checked but is not a check item"):format(who, i), 3)', '        if item.checked ~= nil and item.kind ~= "check" then\n            error(("EverythingUI: %s item %d has checked but is not a check item"):format(who, i), 2)', "checked error level (EQOT's 2026-11-23 scan)"),
 ]
 
 
