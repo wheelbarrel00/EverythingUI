@@ -264,6 +264,60 @@ case("a link to copy opens selected, so Ctrl+C takes it at once", function()
     ok(edit._highlight == false, "a plain prompt opens unselected")
 end)
 
+-- The client hands the keyboard only to a box on screen, and the stub keeps that rule, so a dialog
+-- that focused its field while still hidden opened with the keyboard elsewhere (AnotherDamnDave).
+local LINK = { title = "EQ Objective Tracker", text = "Copy the link below:", button1 = "Close",
+               hasEditBox = true, editBoxText = "https://a.example", readOnly = true, highlightEditBox = true }
+
+case("a box opened from a hidden dialog takes the keyboard", function()
+    local env, _, ui = setup()
+    ui:ShowDialog(confirm())
+    ui._dialog.accept:Click()
+    ok(not ui._dialog:IsShown(), "the dialog was hidden before the link opened")
+    ui:ShowDialog(LINK)
+    local f = ui._dialog
+    ok(f:IsShown(), "the link's dialog is up")
+    ok(env.focus == f.edit, "its field holds the keyboard")
+    ok(f.edit._highlight == true, "and the link is selected for Ctrl+C")
+end)
+
+case("the first dialog of a session takes the keyboard", function()
+    local env, _, ui = setup()
+    ok(ui._dialog == nil, "no dialog built yet")
+    ui:ShowDialog(LINK)
+    ok(env.focus == ui._dialog.edit and ui._dialog.edit._highlight == true,
+       "the field built and shown in one call holds the keyboard, selected")
+end)
+
+case("a typed name box takes the keyboard", function()
+    local env, _, ui = setup()
+    ui:ShowDialog(confirm({ hasEditBox = true, highlightEditBox = true, editBoxText = "Raid" }))
+    ok(env.focus == ui._dialog.edit, "typing lands in the field, not on key bindings")
+    ok(ui._dialog.edit._highlight == true, "with the offered name selected to type over")
+end)
+
+-- Whether the client lets a hidden box take the keyboard is unmeasured, so the guard is held by the
+-- call itself: a confirm never asks its hidden field for focus.
+case("a dialog with no box never asks its hidden field for the keyboard", function()
+    local _, _, ui = setup()
+    ui:ShowDialog(LINK)
+    local edit, asked = ui._dialog.edit, 0
+    local real = edit.SetFocus
+    edit.SetFocus = function(self) asked = asked + 1 return real(self) end
+    ui:ShowDialog(confirm())
+    ok(asked == 0, "a confirm never calls SetFocus on its hidden field: " .. asked)
+    ui:ShowDialog(confirm({ hasEditBox = false }))
+    ok(asked == 0, "nor does one that says hasEditBox = false: " .. asked)
+    ui:ShowDialog(LINK)
+    ok(asked == 1, "and a link calls it once: " .. asked)
+end)
+
+case("a dialog with no box takes no keyboard focus", function()
+    local env, _, ui = setup()
+    ui:ShowDialog(confirm())
+    ok(env.focus ~= ui._dialog.edit, "a confirm leaves the field alone")
+end)
+
 case("a read-only field can be copied but not typed over", function()
     local env, _, ui = setup()
     local got

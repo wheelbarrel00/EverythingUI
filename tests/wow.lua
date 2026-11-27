@@ -294,14 +294,20 @@ function M.newEnv(opts)
     function ScrollFrame:UpdateScrollChildRect() end
 
     -- Focus is one at a time across the client, kept on env. SetFocus drops any selection, as the
-    -- client's does, so a HighlightText made before it is lost.
+    -- client's does, so a HighlightText made before it is lost. Only a box on screen takes the keyboard
+    -- here (measured 2026-11-26: a dialog that focused its field before showing never had it). Whether a
+    -- hidden box inside a shown dialog can take it in the client is unmeasured.
     local EditBox = copyInto({}, Frame)
     function EditBox:SetAutoFocus(v) self._autoFocus = v end
     function EditBox:SetMaxLetters(n) self._maxLetters = n end
     function EditBox:SetText(s) self._text = s self._highlight = false end
     function EditBox:GetText() return self._text or "" end
     function EditBox:SetCursorPosition(p) self._cursor = p end
-    function EditBox:SetFocus() self._highlight = false env.focus = self end
+    function EditBox:SetFocus()
+        if not self:IsVisible() then return end
+        self._highlight = false
+        env.focus = self
+    end
     function EditBox:ClearFocus() if env.focus == self then env.focus = nil end end
     function EditBox:HasFocus() return env.focus == self end
     function EditBox:HighlightText() self._highlight = true end

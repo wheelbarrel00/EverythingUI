@@ -1040,16 +1040,18 @@ case("a text block stacks wrapping lines in the type styles", function()
        "spanning the block, so it wraps at the block's width")
     ok(block._h == 13, "the block is as tall as its text: " .. tostring(block._h))
 
+    -- Read again only by Measure, which every host runs once its page is on screen (fitHeight, or a
+    -- What's New layout), so adding a line costs one read rather than the whole block's.
     a._measureH = 30
     local b = block:AddLine("A standalone replacement for the default objective tracker.")
     ok(sameColor(b._textColor, ui:Color("label")) and b._font[2] == 13, "a line with no style is a label")
-    ok(point(b, "TOPLEFT")[5] == -(30 + 4) and point(b, "TOPRIGHT")[5] == -(30 + 4),
-       "the next line starts under the height the first measures, plus 4")
+    ok(point(b, "TOPLEFT")[5] == -(13 + 4) and point(b, "TOPRIGHT")[5] == -(13 + 4),
+       "the next line starts under the heights read so far, plus 4")
     local c = block:AddLine("New Features", "groupLabel", { gap = 10 })
-    ok(point(c, "TOPLEFT")[5] == -(30 + 4 + 13 + 10), "a line can ask for more room above it")
+    ok(point(c, "TOPLEFT")[5] == -(13 + 4 + 13 + 10), "a line can ask for more room above it")
     local d = block:AddLine("Use Blizzard's quest tracker", "label", { bullet = "-", indent = 6 })
     local bullet = block._lines[4].bullet
-    local y = -(30 + 4 + 13 + 10 + 12 + 4)
+    local y = -(13 + 4 + 13 + 10 + 12 + 4)
     ok(bullet and bullet._parent == block and bullet:GetText() == "-"
        and sameColor(bullet._textColor, ui:Color("label")) and bullet._font[2] == 13,
        "a bullet is its own string, in the line's style")
@@ -1059,7 +1061,7 @@ case("a text block stacks wrapping lines in the type styles", function()
     local e = block:AddLine("2026-09-30", "value", { color = "muted" })
     ok(sameColor(e._textColor, ui:Color("muted")) and e._font[1]:find("Medium", 1, true),
        "a line can take another color and keep its style's face")
-    ok(block._h == 30 + 4 + 13 + 10 + 12 + 4 + 13 + 4 + 13, "the block sums its lines: " .. tostring(block._h))
+    ok(block._h == 13 + 4 + 13 + 10 + 12 + 4 + 13 + 4 + 13, "the block sums its lines: " .. tostring(block._h))
 
     b._measureH = 52
     local h = block:Measure()
@@ -1067,6 +1069,51 @@ case("a text block stacks wrapping lines in the type styles", function()
        "Measure reads every line again and returns the new height: " .. tostring(h))
     ok(point(c, "TOPLEFT")[5] == -(30 + 4 + 52 + 10) and point(e, "TOPLEFT")[5] == -(h - 13),
        "and moves the lines under it")
+    local f = block:AddLine("After a measure", "label")
+    ok(point(f, "TOPLEFT")[5] == -(h + 4) and block._h == h + 4 + 13,
+       "a line added after a Measure starts under the measured height: " .. tostring(block._h))
+end)
+
+case("adding a line reads only that line's height", function()
+    local env, _, ui = setup()
+    local block = ui:CreateTextBlock(newContent(env))
+    local first = block:AddLine("Version 1.28.0", "value")
+    local proto = getmetatable(first).__index
+    local real, reads = proto.GetStringHeight, 0
+    proto.GetStringHeight = function(s) reads = reads + 1 return real(s) end
+    for i = 2, 20 do block:AddLine("Line " .. i, "label") end
+    proto.GetStringHeight = real
+    ok(reads == 19, "19 more lines read 19 heights, not the whole block each time: " .. reads)
+end)
+
+case("lines added one by one sit where a full measure puts them", function()
+    local env, _, ui = setup()
+    local block = ui:CreateTextBlock(newContent(env))
+    local lines = {
+        block:AddLine("Version", "value"),
+        block:AddLine("New Features", "groupLabel", { gap = 10 }),
+        block:AddLine("A bullet", "label", { bullet = "-", indent = 6 }),
+        block:AddLine("Muted", "value", { color = "muted", gap = 2 }),
+        block:AddLine("Indented", "label", { indent = 12 }),
+    }
+    local before, h0 = {}, block._h
+    for i, fs in ipairs(lines) do before[i] = { point(fs, "TOPLEFT")[4], point(fs, "TOPLEFT")[5] } end
+    local h = block:Measure()
+    ok(h == h0 and block._h == h0, "the same height: " .. tostring(h0) .. " then " .. tostring(h))
+    for i, fs in ipairs(lines) do
+        local p = point(fs, "TOPLEFT")
+        ok(p[4] == before[i][1] and p[5] == before[i][2], "line " .. i .. " where Measure puts it")
+    end
+end)
+
+case("a string not laid out yet still takes its style's size when added", function()
+    local env, _, ui = setup()
+    local block = ui:CreateTextBlock(newContent(env))
+    env.stringHeight = 0
+    block:AddLine("Version", "value")
+    local second = block:AddLine("Next", "label")
+    ok(point(second, "TOPLEFT")[5] == -(13 + 4), "the 0 is read as the style's 13, not as no height")
+    ok(block._h == 13 + 4 + 13, "and the block is sized from it: " .. tostring(block._h))
 end)
 
 case("a text block line Barlow cannot draw takes the client's font, in its style's color", function()

@@ -1486,8 +1486,11 @@ case("Enter opens the first result, and a page picked or the window closed ends 
     type_("play")
     ui._results.list.rows[1]:Click()
     type_("show")
-    f.search.box:SetFocus()
+    -- Shown first: the client gives no keyboard to a box in a hidden window, so the close below
+    -- would have nothing to let go of.
     f:Show()
+    f.search.box:SetFocus()
+    ok(f.search.box:HasFocus(), "the search box holds the keyboard while the window is open")
     f:Hide()
     ok(not f.search.box:HasFocus(), "closing the window lets go of the keyboard")
     ok(not log.rows.play._euiFlash:IsShown() and not ui._flashDriver:IsShown(), "and ends a flash")
