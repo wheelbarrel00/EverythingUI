@@ -209,6 +209,49 @@ case("a button runs its callback with the dialog still up, then hides it", funct
     ok(accepted == 1 and cancelledToo == 0, "a second press after it closed does nothing")
 end)
 
+case("onDecline hears the secondary button alone, and onCancel every other close", function()
+    local env, _, ui = setup()
+    local got
+    local function opts()
+        got = {}
+        return confirm({ onAccept = function() got[#got + 1] = "accept" end,
+                         onCancel = function() got[#got + 1] = "cancel" end,
+                         onDecline = function() got[#got + 1] = "decline" end })
+    end
+    ui:ShowDialog(opts())
+    local during
+    ui._dialog.opts.onDecline = function() got[#got + 1] = "decline"; during = ui._dialog:IsShown() end
+    ui._dialog.cancel:Click()
+    ok(#got == 1 and got[1] == "decline", "the secondary button runs onDecline only: " .. table.concat(got, ","))
+    ok(during == true and not ui._dialog:IsShown(), "with the dialog still up, then hides it")
+    ui:ShowDialog(opts())
+    env.fire(ui._dialog, "OnKeyDown", "ESCAPE")
+    ok(#got == 1 and got[1] == "cancel", "Escape runs onCancel: " .. table.concat(got, ","))
+    ui:ShowDialog(opts())
+    ui._dialog.edit:_fire("OnEscapePressed")
+    ok(#got == 1 and got[1] == "cancel", "Escape from the field runs onCancel: " .. table.concat(got, ","))
+    ui:ShowDialog(opts())
+    local first = got
+    ui:ShowDialog(confirm())
+    ok(#first == 1 and first[1] == "cancel", "a dialog opened over it runs onCancel: " .. table.concat(first, ","))
+    ui._dialog.cancel:Click()
+    ui:ShowDialog(opts())
+    ui._dialog.accept:Click()
+    ok(#got == 1 and got[1] == "accept", "the primary still runs onAccept alone: " .. table.concat(got, ","))
+    local cancelled = 0
+    ui:ShowDialog(confirm({ onCancel = function() cancelled = cancelled + 1 end }))
+    ui._dialog.cancel:Click()
+    ok(cancelled == 1, "with no onDecline the secondary button runs onCancel, as before")
+    ok(pcall(ui.ShowDialog, ui, confirm({ onDecline = function() end })), "onDecline is a known field")
+    ui._dialog.cancel:Click()
+    ok(not pcall(ui.ShowDialog, ui, confirm({ onDecline = "no" })), "and must be a function")
+    ui:ShowDialog(opts())
+    ui._dialog.opts.onDecline = function() error("bang", 0) end
+    local errs = #env.errors
+    ui._dialog.cancel:Click()
+    ok(not ui._dialog:IsShown() and #env.errors == errs + 1, "a raising onDecline still closes the dialog and reaches the error handler")
+end)
+
 case("a callback that opens the next dialog keeps it on screen", function()
     local _, _, ui = setup()
     local second = { title = "EQ Objective Tracker", text = "Name taken.", button1 = "OK" }
